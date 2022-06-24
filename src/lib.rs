@@ -2,11 +2,11 @@
 
 #[macro_export]
 macro_rules! un_def {
-    ($(#[$attr:meta],)* $name:ident, $type:ident, $bits:expr) => {
+    ($(#[$attr:meta],)* $vis:vis, $name:ident, $type:ident, $bits:expr) => {
         $(#[$attr])*
         #[repr(transparent)]
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name($type);
+        $vis struct $name($type);
         impl $name {
             pub const MIN: Self = Self(0);
             pub const MAX: Self = Self((1 << Self::BITS) - 1);
@@ -284,7 +284,7 @@ macro_rules! un_def {
             }
 
             #[inline]
-            pub const fn pow(self, mut exp: u32) -> Self {
+            pub const fn pow(self, exp: u32) -> Self {
                 let x = self.0.pow(exp);
                 assert!(x <= Self::MAX.0, "attempt to multiply with overflow");
                 Self::new(x)
@@ -320,13 +320,20 @@ macro_rules! un_def {
                 }
             }
         }
-    }
+    };
 }
 
 #[cfg(test)]
 mod tests {
 
-    un_def!(#[allow(non_camel_case_types)], u5, u8, 5);
+    un_def!(#[allow(non_camel_case_types)], , u5, u8, 5);
+
+    #[test]
+    fn u5_consts() {
+        assert_eq!(u5::MIN.0, 0);
+        assert_eq!(u5::MAX.0, 31);
+        assert_eq!(u5::BITS, 5);
+    }
 
     #[test]
     fn u5_new_in_range() {
@@ -434,5 +441,104 @@ mod tests {
         assert_eq!(u5::new(0b11010).reverse_bits(), u5::new(0b01011));
         assert_eq!(u5::new(0b00100).reverse_bits(), u5::new(0b00100));
         assert_eq!(u5::new(0b01101).reverse_bits(), u5::new(0b10110));
+    }
+
+    #[test]
+    fn u5_checked_add() {
+        assert_eq!(u5::new(10).checked_add(u5::new(13)), Some(u5::new(23)));
+        assert_eq!(u5::new(31).checked_add(u5::new(1)), None);
+        assert_eq!(u5::new(17).checked_add(u5::new(24)), None);
+        assert_eq!(u5::new(5).checked_add(u5::new(3)), Some(u5::new(8)));
+        assert_eq!(u5::new(24).checked_add(u5::new(0)), Some(u5::new(24)));
+    }
+
+    #[test]
+    fn u5_checked_sub() {
+        assert_eq!(u5::new(17).checked_sub(u5::new(13)), Some(u5::new(4)));
+        assert_eq!(u5::new(31).checked_sub(u5::new(1)), Some(u5::new(30)));
+        assert_eq!(u5::new(0).checked_sub(u5::new(24)), None);
+        assert_eq!(u5::new(5).checked_sub(u5::new(3)), Some(u5::new(2)));
+        assert_eq!(u5::new(24).checked_sub(u5::new(0)), Some(u5::new(24)));
+    }
+
+    #[test]
+    fn u5_checked_mul() {
+        assert_eq!(u5::new(10).checked_mul(u5::new(13)), None);
+        assert_eq!(u5::new(31).checked_mul(u5::new(1)), Some(u5::new(31)));
+        assert_eq!(u5::new(17).checked_mul(u5::new(24)), None);
+        assert_eq!(u5::new(6).checked_mul(u5::new(4)), Some(u5::new(24)));
+        assert_eq!(u5::new(12).checked_mul(u5::new(0)), Some(u5::new(0)));
+    }
+
+    #[test]
+    fn u5_checked_div() {
+        assert_eq!(u5::new(23).checked_div(u5::new(10)), Some(u5::new(2)));
+        assert_eq!(u5::new(9).checked_div(u5::new(1)), Some(u5::new(9)));
+        assert_eq!(u5::new(0).checked_div(u5::new(24)), Some(u5::new(0)));
+        assert_eq!(u5::new(5).checked_div(u5::new(3)), Some(u5::new(1)));
+        assert_eq!(u5::new(24).checked_div(u5::new(0)), None);
+    }
+
+    #[test]
+    fn u5_checked_div_euclid() {
+        assert_eq!(u5::new(23).checked_div_euclid(u5::new(10)), Some(u5::new(2)));
+        assert_eq!(u5::new(9).checked_div_euclid(u5::new(1)), Some(u5::new(9)));
+        assert_eq!(u5::new(0).checked_div_euclid(u5::new(24)), Some(u5::new(0)));
+        assert_eq!(u5::new(5).checked_div_euclid(u5::new(3)), Some(u5::new(1)));
+        assert_eq!(u5::new(24).checked_div_euclid(u5::new(0)), None);
+    }
+
+    #[test]
+    fn u5_checked_rem() {
+        assert_eq!(u5::new(23).checked_rem(u5::new(10)), Some(u5::new(3)));
+        assert_eq!(u5::new(9).checked_rem(u5::new(2)), Some(u5::new(1)));
+        assert_eq!(u5::new(10).checked_rem(u5::new(24)), Some(u5::new(10)));
+        assert_eq!(u5::new(12).checked_rem(u5::new(3)), Some(u5::new(0)));
+        assert_eq!(u5::new(24).checked_rem(u5::new(0)), None);
+    }
+
+    #[test]
+    fn u5_checked_rem_euclid() {
+        assert_eq!(u5::new(23).checked_rem_euclid(u5::new(10)), Some(u5::new(3)));
+        assert_eq!(u5::new(9).checked_rem_euclid(u5::new(2)), Some(u5::new(1)));
+        assert_eq!(u5::new(10).checked_rem_euclid(u5::new(24)), Some(u5::new(10)));
+        assert_eq!(u5::new(12).checked_rem_euclid(u5::new(3)), Some(u5::new(0)));
+        assert_eq!(u5::new(24).checked_rem_euclid(u5::new(0)), None);
+    }
+
+    #[test]
+    fn u5_checked_neg() {
+        assert_eq!(u5::new(23).checked_neg(), None);
+        assert_eq!(u5::new(10).checked_neg(), None);
+        assert_eq!(u5::new(23).checked_neg(), None);
+        assert_eq!(u5::new(0).checked_neg(), Some(u5::new(0)));
+        assert_eq!(u5::new(1).checked_neg(), None);
+    }
+    
+    #[test]
+    fn u5_checked_shl() {
+        assert_eq!(u5::new(0b01101).checked_shl(0), Some(u5::new(0b01101)));
+        assert_eq!(u5::new(0b10101).checked_shl(1), Some(u5::new(0b01010)));
+        assert_eq!(u5::new(0b00001).checked_shl(3), Some(u5::new(0b01000)));
+        assert_eq!(u5::new(0b11001).checked_shl(5), None);
+        assert_eq!(u5::new(0b01101).checked_shl(12), None);
+    }
+
+    #[test]
+    fn u5_checked_shr() {
+        assert_eq!(u5::new(0b01001).checked_shr(1), Some(u5::new(0b00100)));
+        assert_eq!(u5::new(0b00111).checked_shr(0), Some(u5::new(0b00111)));
+        assert_eq!(u5::new(0b00101).checked_shr(4), Some(u5::new(0b00000)));
+        assert_eq!(u5::new(0b11000).checked_shr(5), None);
+        assert_eq!(u5::new(0b01100).checked_shr(63), None);
+    }
+    
+    #[test]
+    fn u5_checked_pow() {
+        assert_eq!(u5::new(7).checked_pow(3), None);
+        assert_eq!(u5::new(23).checked_pow(0), Some(u5::new(1)));
+        assert_eq!(u5::new(2).checked_pow(4), Some(u5::new(16)));
+        assert_eq!(u5::new(11).checked_pow(5), None);
+        assert_eq!(u5::new(1).checked_pow(63), Some(u5::new(1)));
     }
 }
