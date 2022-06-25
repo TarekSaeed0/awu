@@ -289,7 +289,7 @@ macro_rules! un_def {
             #[inline]
             pub const fn pow(self, exp: u32) -> Self {
                 let x = self.0.pow(exp);
-                assert!(x <= Self::MAX.0, "attempt to multiply with overflow");
+                debug_assert!(x <= Self::MAX.0, "attempt to multiply with overflow");
                 Self::new(x)
             }
 
@@ -311,7 +311,7 @@ macro_rules! un_def {
             #[inline]
             const fn next_power_of_two(self) -> Self {
                 let x = self.0.next_power_of_two();
-                assert!(x <= Self::MAX.0, "attempt to add with overflow");
+                debug_assert!(x <= Self::MAX.0, "attempt to add with overflow");
                 Self::new(x)
             }
 
@@ -743,7 +743,6 @@ mod tests {
         assert_eq!(u5::new(1).wrapping_pow(63), u5::new(1));
     }
 
-    
     #[test]
     fn u5_overflowing_add() {
         assert_eq!(u5::new(10).overflowing_add(u5::new(13)), (u5::new(23), false));
@@ -898,5 +897,107 @@ mod tests {
         assert_eq!(u5::new(2).overflowing_pow(4), (u5::new(16), false));
         assert_eq!(u5::new(11).overflowing_pow(5), (u5::new(27), true));
         assert_eq!(u5::new(1).overflowing_pow(63), (u5::new(1), false));
+    }
+
+    #[test]
+    fn u5_pow() {
+        assert_eq!(u5::new(3).pow(3), u5::new(27));
+        assert_eq!(u5::new(23).pow(0), u5::new(1));
+        assert_eq!(u5::new(2).pow(4), u5::new(16));
+        assert_eq!(u5::new(5).pow(2), u5::new(25));
+        assert_eq!(u5::new(1).pow(63), u5::new(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to multiply with overflow")]
+    fn u5_pow_panic_0() {
+        u5::new(20).pow(6);
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to multiply with overflow")]
+    fn u5_pow_panic_1() {
+        u5::new(12).pow(13);
+    }
+
+    #[test]
+    fn u5_div_euclid() {
+        assert_eq!(u5::new(23).div_euclid(u5::new(10)), u5::new(2));
+        assert_eq!(u5::new(9).div_euclid(u5::new(1)), u5::new(9));
+        assert_eq!(u5::new(0).div_euclid(u5::new(24)), u5::new(0));
+        assert_eq!(u5::new(5).div_euclid(u5::new(3)), u5::new(1));
+        assert_eq!(u5::new(24).div_euclid(u5::new(5)), u5::new(4));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to divide by zero")]
+    fn u5_div_euclid_panic_0() {
+        u5::new(5).div_euclid(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to divide by zero")]
+    fn u5_div_euclid_panic_1() {
+        u5::new(0).div_euclid(u5::new(0));
+    }
+
+    #[test]
+    fn u5_rem_euclid() {
+        assert_eq!(u5::new(23).rem_euclid(u5::new(10)), u5::new(3));
+        assert_eq!(u5::new(9).rem_euclid(u5::new(2)), u5::new(1));
+        assert_eq!(u5::new(10).rem_euclid(u5::new(24)), u5::new(10));
+        assert_eq!(u5::new(12).rem_euclid(u5::new(3)), u5::new(0));
+        assert_eq!(u5::new(24).rem_euclid(u5::new(12)), u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_rem_euclid_panic_0() {
+        u5::new(20).rem_euclid(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_rem_euclid_panic_1() {
+        u5::new(0).rem_euclid(u5::new(0));
+    }
+
+    #[test]
+    fn u5_is_power_of_two() {
+        assert!(u5::new(4).is_power_of_two());
+        assert!(!u5::new(11).is_power_of_two());
+        assert!(u5::new(16).is_power_of_two());
+        assert!(u5::new(1).is_power_of_two());
+        assert!(!u5::new(31).is_power_of_two());
+    }
+
+    #[test]
+    fn u5_next_power_of_two() {
+        assert_eq!(u5::new(4).next_power_of_two(), u5::new(4));
+        assert_eq!(u5::new(0).next_power_of_two(), u5::new(1));
+        assert_eq!(u5::new(11).next_power_of_two(), u5::new(16));
+        assert_eq!(u5::new(6).next_power_of_two(), u5::new(8));
+        assert_eq!(u5::new(1).next_power_of_two(), u5::new(1));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to add with overflow")]
+    fn u5_next_power_of_two_panic_0() {
+        u5::new(24).next_power_of_two();
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to add with overflow")]
+    fn u5_next_power_of_two_panic_1() {
+        u5::new(31).next_power_of_two();
+    }
+
+    #[test]
+    fn u5_checked_next_power_of_two() {
+        assert_eq!(u5::new(4).checked_next_power_of_two(), Some(u5::new(4)));
+        assert_eq!(u5::new(0).checked_next_power_of_two(), Some(u5::new(1)));
+        assert_eq!(u5::new(24).checked_next_power_of_two(), None);
+        assert_eq!(u5::new(6).checked_next_power_of_two(), Some(u5::new(8)));
+        assert_eq!(u5::new(31).checked_next_power_of_two(), None);
     }
 }
