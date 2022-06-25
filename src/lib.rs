@@ -2,7 +2,11 @@
 
 #[macro_export]
 macro_rules! un_def {
-    ($(#[$attr:meta],)* $vis:vis, $name:ident, $type:ident, $bits:expr) => {
+    (
+        $(#[$attr:meta])* 
+        $vis:vis struct $name:ident($type:ty)
+        where BITS: $bits:expr;
+    ) => {
         $(#[$attr])*
         #[repr(transparent)]
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -204,7 +208,7 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn wrapping_shr(self, rhs: u32) -> Self {
-                Self::new(self.0.wrapping_shl(rhs % Self::BITS))
+                Self::new(self.0.wrapping_shr(rhs % Self::BITS))
             }
 
             #[inline]
@@ -326,7 +330,10 @@ macro_rules! un_def {
 #[cfg(test)]
 mod tests {
 
-    un_def!(#[allow(non_camel_case_types)], , u5, u8, 5);
+    un_def! {
+        #[allow(non_camel_case_types)] 
+        struct u5(u8) where BITS: 5;
+    }
 
     #[test]
     fn u5_consts() {
@@ -454,7 +461,7 @@ mod tests {
 
     #[test]
     fn u5_checked_sub() {
-        assert_eq!(u5::new(17).checked_sub(u5::new(13)), Some(u5::new(4)));
+        assert_eq!(u5::new(17).checked_sub(u5::new(23)), None);
         assert_eq!(u5::new(31).checked_sub(u5::new(1)), Some(u5::new(30)));
         assert_eq!(u5::new(0).checked_sub(u5::new(24)), None);
         assert_eq!(u5::new(5).checked_sub(u5::new(3)), Some(u5::new(2)));
@@ -510,7 +517,7 @@ mod tests {
     fn u5_checked_neg() {
         assert_eq!(u5::new(23).checked_neg(), None);
         assert_eq!(u5::new(10).checked_neg(), None);
-        assert_eq!(u5::new(23).checked_neg(), None);
+        assert_eq!(u5::new(16).checked_neg(), None);
         assert_eq!(u5::new(0).checked_neg(), Some(u5::new(0)));
         assert_eq!(u5::new(1).checked_neg(), None);
     }
@@ -540,5 +547,209 @@ mod tests {
         assert_eq!(u5::new(2).checked_pow(4), Some(u5::new(16)));
         assert_eq!(u5::new(11).checked_pow(5), None);
         assert_eq!(u5::new(1).checked_pow(63), Some(u5::new(1)));
+    }
+
+    #[test]
+    fn u5_saturating_add() {
+        assert_eq!(u5::new(10).saturating_add(u5::new(13)), u5::new(23));
+        assert_eq!(u5::new(31).saturating_add(u5::new(1)), u5::new(31));
+        assert_eq!(u5::new(17).saturating_add(u5::new(24)), u5::new(31));
+        assert_eq!(u5::new(5).saturating_add(u5::new(3)), u5::new(8));
+        assert_eq!(u5::new(24).saturating_add(u5::new(0)), u5::new(24));
+    }
+
+    #[test]
+    fn u5_saturating_sub() {
+        assert_eq!(u5::new(17).saturating_sub(u5::new(23)), u5::new(0));
+        assert_eq!(u5::new(31).saturating_sub(u5::new(1)), u5::new(30));
+        assert_eq!(u5::new(0).saturating_sub(u5::new(24)), u5::new(0));
+        assert_eq!(u5::new(5).saturating_sub(u5::new(3)), u5::new(2));
+        assert_eq!(u5::new(24).saturating_sub(u5::new(0)), u5::new(24));
+    }
+
+    #[test]
+    fn u5_saturating_mul() {
+        assert_eq!(u5::new(10).saturating_mul(u5::new(13)), u5::new(31));
+        assert_eq!(u5::new(31).saturating_mul(u5::new(1)), u5::new(31));
+        assert_eq!(u5::new(17).saturating_mul(u5::new(24)), u5::new(31));
+        assert_eq!(u5::new(6).saturating_mul(u5::new(4)), u5::new(24));
+        assert_eq!(u5::new(12).saturating_mul(u5::new(0)), u5::new(0));
+    }
+
+    #[test]
+    fn u5_saturating_div() {
+        assert_eq!(u5::new(23).saturating_div(u5::new(10)), u5::new(2));
+        assert_eq!(u5::new(9).saturating_div(u5::new(1)), u5::new(9));
+        assert_eq!(u5::new(0).saturating_div(u5::new(24)), u5::new(0));
+        assert_eq!(u5::new(5).saturating_div(u5::new(3)), u5::new(1));
+        assert_eq!(u5::new(5).saturating_div(u5::new(16)), u5::new(0));
+    }
+    
+    #[test]
+    #[should_panic(expected = "attempt to divide by zero")]
+    fn u5_saturating_div_panic_0() {
+        u5::new(17).saturating_div(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to divide by zero")]
+    fn u5_saturating_div_panic_1() {
+        u5::new(0).saturating_div(u5::new(0));
+    }
+
+    #[test]
+    fn u5_saturating_pow() {
+        assert_eq!(u5::new(7).saturating_pow(3), u5::new(31));
+        assert_eq!(u5::new(23).saturating_pow(0), u5::new(1));
+        assert_eq!(u5::new(2).saturating_pow(4), u5::new(16));
+        assert_eq!(u5::new(11).saturating_pow(5), u5::new(31));
+        assert_eq!(u5::new(1).saturating_pow(63), u5::new(1));
+    }
+
+    #[test]
+    fn u5_wrapping_add() {
+        assert_eq!(u5::new(10).wrapping_add(u5::new(13)), u5::new(23));
+        assert_eq!(u5::new(31).wrapping_add(u5::new(1)), u5::new(0));
+        assert_eq!(u5::new(17).wrapping_add(u5::new(24)), u5::new(9));
+        assert_eq!(u5::new(5).wrapping_add(u5::new(3)), u5::new(8));
+        assert_eq!(u5::new(24).wrapping_add(u5::new(0)), u5::new(24));
+    }
+
+    #[test]
+    fn u5_wrapping_sub() {
+        assert_eq!(u5::new(17).wrapping_sub(u5::new(23)), u5::new(26));
+        assert_eq!(u5::new(31).wrapping_sub(u5::new(1)), u5::new(30));
+        assert_eq!(u5::new(0).wrapping_sub(u5::new(24)), u5::new(8));
+        assert_eq!(u5::new(5).wrapping_sub(u5::new(3)), u5::new(2));
+        assert_eq!(u5::new(24).wrapping_sub(u5::new(0)), u5::new(24));
+    }
+
+    #[test]
+    fn u5_wrapping_mul() {
+        assert_eq!(u5::new(10).wrapping_mul(u5::new(13)), u5::new(2));
+        assert_eq!(u5::new(31).wrapping_mul(u5::new(1)), u5::new(31));
+        assert_eq!(u5::new(17).wrapping_mul(u5::new(24)), u5::new(24));
+        assert_eq!(u5::new(6).wrapping_mul(u5::new(4)), u5::new(24));
+        assert_eq!(u5::new(12).wrapping_mul(u5::new(0)), u5::new(0));
+    }
+
+    #[test]
+    fn u5_wrapping_div() {
+        assert_eq!(u5::new(23).wrapping_div(u5::new(10)), u5::new(2));
+        assert_eq!(u5::new(9).wrapping_div(u5::new(1)), u5::new(9));
+        assert_eq!(u5::new(0).wrapping_div(u5::new(24)), u5::new(0));
+        assert_eq!(u5::new(5).wrapping_div(u5::new(3)), u5::new(1));
+        assert_eq!(u5::new(24).wrapping_div(u5::new(5)), u5::new(4));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to divide by zero")]
+    fn u5_wrapping_div_panic_0() {
+        u5::new(25).wrapping_div(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to divide by zero")]
+    fn u5_wrapping_div_panic_1() {
+        u5::new(0).wrapping_div(u5::new(0));
+    }
+
+    #[test]
+    fn u5_wrapping_div_euclid() {
+        assert_eq!(u5::new(23).wrapping_div_euclid(u5::new(10)), u5::new(2));
+        assert_eq!(u5::new(9).wrapping_div_euclid(u5::new(1)), u5::new(9));
+        assert_eq!(u5::new(0).wrapping_div_euclid(u5::new(24)), u5::new(0));
+        assert_eq!(u5::new(5).wrapping_div_euclid(u5::new(3)), u5::new(1));
+        assert_eq!(u5::new(24).wrapping_div_euclid(u5::new(5)), u5::new(4));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to divide by zero")]
+    fn u5_wrapping_div_euclid_panic_0() {
+        u5::new(5).wrapping_div_euclid(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to divide by zero")]
+    fn u5_wrapping_div_euclid_panic_1() {
+        u5::new(0).wrapping_div_euclid(u5::new(0));
+    }
+
+    #[test]
+    fn u5_wrapping_rem() {
+        assert_eq!(u5::new(23).wrapping_rem(u5::new(10)), u5::new(3));
+        assert_eq!(u5::new(9).wrapping_rem(u5::new(2)), u5::new(1));
+        assert_eq!(u5::new(10).wrapping_rem(u5::new(24)), u5::new(10));
+        assert_eq!(u5::new(12).wrapping_rem(u5::new(3)), u5::new(0));
+        assert_eq!(u5::new(24).wrapping_rem(u5::new(12)), u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_wrapping_rem_panic_0() {
+        u5::new(31).wrapping_rem(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_wrapping_rem_panic_1() {
+        u5::new(0).wrapping_rem(u5::new(0));
+    }
+
+    #[test]
+    fn u5_wrapping_rem_euclid() {
+        assert_eq!(u5::new(23).wrapping_rem_euclid(u5::new(10)), u5::new(3));
+        assert_eq!(u5::new(9).wrapping_rem_euclid(u5::new(2)), u5::new(1));
+        assert_eq!(u5::new(10).wrapping_rem_euclid(u5::new(24)), u5::new(10));
+        assert_eq!(u5::new(12).wrapping_rem_euclid(u5::new(3)), u5::new(0));
+        assert_eq!(u5::new(24).wrapping_rem_euclid(u5::new(12)), u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_wrapping_rem_euclid_panic_0() {
+        u5::new(20).wrapping_rem_euclid(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_wrapping_rem_euclid_panic_1() {
+        u5::new(0).wrapping_rem_euclid(u5::new(0));
+    }
+
+    #[test]
+    fn u5_wrapping_neg() {
+        assert_eq!(u5::new(23).wrapping_neg(), u5::new(9));
+        assert_eq!(u5::new(10).wrapping_neg(), u5::new(22));
+        assert_eq!(u5::new(16).wrapping_neg(), u5::new(16));
+        assert_eq!(u5::new(0).wrapping_neg(), u5::new(0));
+        assert_eq!(u5::new(1).wrapping_neg(), u5::new(31));
+    }
+    
+    #[test]
+    fn u5_wrapping_shl() {
+        assert_eq!(u5::new(0b01101).wrapping_shl(0), u5::new(0b01101));
+        assert_eq!(u5::new(0b10101).wrapping_shl(1), u5::new(0b01010));
+        assert_eq!(u5::new(0b00001).wrapping_shl(3), u5::new(0b01000));
+        assert_eq!(u5::new(0b11001).wrapping_shl(5), u5::new(0b11001));
+        assert_eq!(u5::new(0b01101).wrapping_shl(12), u5::new(0b10100));
+    }
+
+    #[test]
+    fn u5_wrapping_shr() {
+        assert_eq!(u5::new(0b01001).wrapping_shr(1), u5::new(0b00100));
+        assert_eq!(u5::new(0b00111).wrapping_shr(0), u5::new(0b00111));
+        assert_eq!(u5::new(0b00101).wrapping_shr(4), u5::new(0b00000));
+        assert_eq!(u5::new(0b11000).wrapping_shr(5), u5::new(0b11000));
+        assert_eq!(u5::new(0b01100).wrapping_shr(63), u5::new(0b00001));
+    }
+    
+    #[test]
+    fn u5_wrapping_pow() {
+        assert_eq!(u5::new(7).wrapping_pow(3), u5::new(23));
+        assert_eq!(u5::new(23).wrapping_pow(0), u5::new(1));
+        assert_eq!(u5::new(2).wrapping_pow(4), u5::new(16));
+        assert_eq!(u5::new(11).wrapping_pow(5), u5::new(27));
+        assert_eq!(u5::new(1).wrapping_pow(63), u5::new(1));
     }
 }
