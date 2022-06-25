@@ -4,8 +4,7 @@
 macro_rules! un_def {
     (
         $(#[$attr:meta])* 
-        $vis:vis struct $name:ident($type:ty)
-        where BITS: $bits:expr;
+        $vis:vis struct $name:ident($type:ty) where BITS: $bits:expr;
     ) => {
         $(#[$attr])*
         #[repr(transparent)]
@@ -433,15 +432,6 @@ mod tests {
     }
 
     #[test]
-    fn u5_rotate_left_and_right() {
-        assert_eq!(u5::new(0b11010).rotate_left(2).rotate_right(2), u5::new(0b11010));
-        assert_eq!(u5::new(0b00110).rotate_left(3).rotate_right(5), u5::new(0b00110).rotate_left(2).rotate_right(4));
-        assert_eq!(u5::new(0b01010).rotate_left(8).rotate_right(9), u5::new(0b01010).rotate_right(9 - 8));
-        assert_eq!(u5::new(0b10000).rotate_left(3).rotate_right(7), u5::new(0b10000).rotate_right(7).rotate_left(3));
-        assert_eq!(u5::new(0b01110).rotate_left(12).rotate_right(5), u5::new(0b01110).rotate_left(12 - 5));
-    }
-
-    #[test]
     fn u5_reverse_bits() {
         assert_eq!(u5::new(0b00000).reverse_bits(), u5::new(0b00000));
         assert_eq!(u5::new(0b01111).reverse_bits(), u5::new(0b11110));
@@ -751,5 +741,162 @@ mod tests {
         assert_eq!(u5::new(2).wrapping_pow(4), u5::new(16));
         assert_eq!(u5::new(11).wrapping_pow(5), u5::new(27));
         assert_eq!(u5::new(1).wrapping_pow(63), u5::new(1));
+    }
+
+    
+    #[test]
+    fn u5_overflowing_add() {
+        assert_eq!(u5::new(10).overflowing_add(u5::new(13)), (u5::new(23), false));
+        assert_eq!(u5::new(31).overflowing_add(u5::new(1)), (u5::new(0), true));
+        assert_eq!(u5::new(17).overflowing_add(u5::new(24)), (u5::new(9), true));
+        assert_eq!(u5::new(5).overflowing_add(u5::new(3)), (u5::new(8), false));
+        assert_eq!(u5::new(24).overflowing_add(u5::new(0)), (u5::new(24), false));
+    }
+
+    #[test]
+    fn u5_overflowing_sub() {
+        assert_eq!(u5::new(17).overflowing_sub(u5::new(23)), (u5::new(26), true));
+        assert_eq!(u5::new(31).overflowing_sub(u5::new(1)), (u5::new(30), false));
+        assert_eq!(u5::new(0).overflowing_sub(u5::new(24)), (u5::new(8), true));
+        assert_eq!(u5::new(5).overflowing_sub(u5::new(3)), (u5::new(2), false));
+        assert_eq!(u5::new(24).overflowing_sub(u5::new(0)), (u5::new(24), false));
+    }
+
+    #[test]
+    fn u5_abs_diff() {
+        assert_eq!(u5::new(17).abs_diff(u5::new(23)), u5::new(6));
+        assert_eq!(u5::new(31).abs_diff(u5::new(1)), u5::new(30));
+        assert_eq!(u5::new(0).abs_diff(u5::new(24)), u5::new(24));
+        assert_eq!(u5::new(5).abs_diff(u5::new(3)), u5::new(2));
+        assert_eq!(u5::new(24).abs_diff(u5::new(0)), u5::new(24));
+    }
+
+    #[test]
+    fn u5_overflowing_mul() {
+        assert_eq!(u5::new(10).overflowing_mul(u5::new(13)), (u5::new(2), true));
+        assert_eq!(u5::new(31).overflowing_mul(u5::new(1)), (u5::new(31), false));
+        assert_eq!(u5::new(17).overflowing_mul(u5::new(24)), (u5::new(24), true));
+        assert_eq!(u5::new(6).overflowing_mul(u5::new(4)), (u5::new(24), false));
+        assert_eq!(u5::new(12).overflowing_mul(u5::new(0)), (u5::new(0), false));
+    }
+
+    #[test]
+    fn u5_overflowing_div() {
+        assert_eq!(u5::new(23).overflowing_div(u5::new(10)), (u5::new(2), false));
+        assert_eq!(u5::new(9).overflowing_div(u5::new(1)), (u5::new(9), false));
+        assert_eq!(u5::new(0).overflowing_div(u5::new(24)), (u5::new(0), false));
+        assert_eq!(u5::new(5).overflowing_div(u5::new(3)), (u5::new(1), false));
+        assert_eq!(u5::new(24).overflowing_div(u5::new(5)), (u5::new(4), false));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to divide by zero")]
+    fn u5_overflowing_div_panic_0() {
+        u5::new(25).overflowing_div(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to divide by zero")]
+    fn u5_overflowing_div_panic_1() {
+        u5::new(0).overflowing_div(u5::new(0));
+    }
+
+    #[test]
+    fn u5_overflowing_div_euclid() {
+        assert_eq!(u5::new(23).overflowing_div_euclid(u5::new(10)), (u5::new(2), false));
+        assert_eq!(u5::new(9).overflowing_div_euclid(u5::new(1)), (u5::new(9), false));
+        assert_eq!(u5::new(0).overflowing_div_euclid(u5::new(24)), (u5::new(0), false));
+        assert_eq!(u5::new(5).overflowing_div_euclid(u5::new(3)), (u5::new(1), false));
+        assert_eq!(u5::new(24).overflowing_div_euclid(u5::new(5)), (u5::new(4), false));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to divide by zero")]
+    fn u5_overflowing_div_euclid_panic_0() {
+        u5::new(5).overflowing_div_euclid(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to divide by zero")]
+    fn u5_overflowing_div_euclid_panic_1() {
+        u5::new(0).overflowing_div_euclid(u5::new(0));
+    }
+
+    #[test]
+    fn u5_overflowing_rem() {
+        assert_eq!(u5::new(23).overflowing_rem(u5::new(10)), (u5::new(3), false));
+        assert_eq!(u5::new(9).overflowing_rem(u5::new(2)), (u5::new(1), false));
+        assert_eq!(u5::new(10).overflowing_rem(u5::new(24)), (u5::new(10), false));
+        assert_eq!(u5::new(12).overflowing_rem(u5::new(3)), (u5::new(0), false));
+        assert_eq!(u5::new(24).overflowing_rem(u5::new(12)), (u5::new(0), false));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_overflowing_rem_panic_0() {
+        u5::new(31).overflowing_rem(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_overflowing_rem_panic_1() {
+        u5::new(0).overflowing_rem(u5::new(0));
+    }
+
+    #[test]
+    fn u5_overflowing_rem_euclid() {
+        assert_eq!(u5::new(23).overflowing_rem_euclid(u5::new(10)), (u5::new(3), false));
+        assert_eq!(u5::new(9).overflowing_rem_euclid(u5::new(2)), (u5::new(1), false));
+        assert_eq!(u5::new(10).overflowing_rem_euclid(u5::new(24)), (u5::new(10), false));
+        assert_eq!(u5::new(12).overflowing_rem_euclid(u5::new(3)), (u5::new(0), false));
+        assert_eq!(u5::new(24).overflowing_rem_euclid(u5::new(12)), (u5::new(0), false));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_overflowing_rem_euclid_panic_0() {
+        u5::new(20).overflowing_rem_euclid(u5::new(0));
+    }
+
+    #[test]
+    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
+    fn u5_overflowing_rem_euclid_panic_1() {
+        u5::new(0).overflowing_rem_euclid(u5::new(0));
+    }
+
+    #[test]
+    fn u5_overflowing_neg() {
+        assert_eq!(u5::new(23).overflowing_neg(), (u5::new(9), true));
+        assert_eq!(u5::new(10).overflowing_neg(), (u5::new(22), true));
+        assert_eq!(u5::new(16).overflowing_neg(), (u5::new(16), true));
+        assert_eq!(u5::new(0).overflowing_neg(), (u5::new(0), false));
+        assert_eq!(u5::new(1).overflowing_neg(), (u5::new(31), true));
+    }
+    
+    #[test]
+    fn u5_overflowing_shl() {
+        assert_eq!(u5::new(0b01101).overflowing_shl(0), (u5::new(0b01101), false));
+        assert_eq!(u5::new(0b10101).overflowing_shl(1), (u5::new(0b01010), false));
+        assert_eq!(u5::new(0b00001).overflowing_shl(3), (u5::new(0b01000), false));
+        assert_eq!(u5::new(0b11001).overflowing_shl(5), (u5::new(0b11001), true));
+        assert_eq!(u5::new(0b01101).overflowing_shl(12), (u5::new(0b10100), true));
+    }
+
+    #[test]
+    fn u5_overflowing_shr() {
+        assert_eq!(u5::new(0b01001).overflowing_shr(1), (u5::new(0b00100), false));
+        assert_eq!(u5::new(0b00111).overflowing_shr(0), (u5::new(0b00111), false));
+        assert_eq!(u5::new(0b00101).overflowing_shr(4), (u5::new(0b00000), false));
+        assert_eq!(u5::new(0b11000).overflowing_shr(5), (u5::new(0b11000), true));
+        assert_eq!(u5::new(0b01100).overflowing_shr(63), (u5::new(0b00001), true));
+    }
+    
+    #[test]
+    fn u5_overflowing_pow() {
+        assert_eq!(u5::new(7).overflowing_pow(3), (u5::new(23), true));
+        assert_eq!(u5::new(23).overflowing_pow(0), (u5::new(1), false));
+        assert_eq!(u5::new(2).overflowing_pow(4), (u5::new(16), false));
+        assert_eq!(u5::new(11).overflowing_pow(5), (u5::new(27), true));
+        assert_eq!(u5::new(1).overflowing_pow(63), (u5::new(1), false));
     }
 }
