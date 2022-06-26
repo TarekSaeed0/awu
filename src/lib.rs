@@ -20,6 +20,8 @@ macro_rules! un_def {
                 Self(value & Self::MAX.0)
             }
 
+            //from_str_radix not currently supported
+
             #[inline]
             pub const fn count_ones(self) -> u32 {
                 self.0.count_ones()
@@ -88,22 +90,34 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn checked_div(self, rhs: Self) -> Option<Self> {
-                if let Some(v) = self.0.checked_div(rhs.0) {Some(Self(v))} else {None}
+                match self.0.checked_div(rhs.0) {
+                    Some(x) => Some(Self(x)),
+                    None => None,
+                }
             }
 
             #[inline]
             pub const fn checked_div_euclid(self, rhs: Self) -> Option<Self> {
-                if let Some(v) = self.0.checked_div_euclid(rhs.0) {Some(Self(v))} else {None}
+                match self.0.checked_div_euclid(rhs.0) {
+                    Some(x) => Some(Self(x)),
+                    None => None,
+                }
             }
             
             #[inline]
             pub const fn checked_rem(self, rhs: Self) -> Option<Self> {
-                if let Some(v) = self.0.checked_rem(rhs.0) {Some(Self(v))} else {None}
+                match self.0.checked_rem(rhs.0) {
+                    Some(x) => Some(Self(x)),
+                    None => None,
+                }
             }
 
             #[inline]
             pub const fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
-                if let Some(v) = self.0.checked_rem_euclid(rhs.0) {Some(Self(v))} else {None}
+                match self.0.checked_rem_euclid(rhs.0) {
+                    Some(x) => Some(Self(x)),
+                    None => None,
+                }
             }
 
             #[inline]
@@ -126,16 +140,16 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn checked_pow(self, exp: u32) -> Option<Self> {
-                match self.0.checked_pow(exp) {
-                    Some(x) if x <= Self::MAX.0 => Some(Self(x)),
-                    _ => None
-                }
+                let (a, b) = self.overflowing_pow(exp);
+                if b {None} else {Some(a)}
             }
 
             #[inline]
             pub const fn saturating_add(self, rhs: Self) -> Self {
-                let v = self.0.saturating_add(rhs.0);
-                if v > Self::MAX.0 {Self::MAX} else {Self(v)}
+                match self.0.saturating_add(rhs.0) {
+                    x if x > Self::MAX.0 => Self::MAX,
+                    x => Self(x),
+                }
             }
 
             #[inline]
@@ -145,19 +159,23 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn saturating_mul(self, rhs: Self) -> Self {
-                let v = self.0.saturating_mul(rhs.0);
-                if v > Self::MAX.0 {Self::MAX} else {Self(v)}
+                match self.checked_mul(rhs) {
+                    Some(x) => x,
+                    None => Self::MAX,
+                }
             }
 
             #[inline]
             pub const fn saturating_div(self, rhs: Self) -> Self {
-                Self(self.0.saturating_div(rhs.0))
+                self.wrapping_div(rhs)
             }
 
             #[inline]
             pub const fn saturating_pow(self, exp: u32) -> Self {
-                let v = self.0.saturating_pow(exp);
-                if v > Self::MAX.0 {Self::MAX} else {Self(v)}
+                match self.checked_pow(exp) {
+                    Some(x) => x,
+                    None => Self::MAX,
+                }
             }
 
             #[inline]
@@ -319,8 +337,63 @@ macro_rules! un_def {
             const fn checked_next_power_of_two(self) -> Option<Self> {
                 match self.0.checked_next_power_of_two() {
                     Some(x) if x <= Self::MAX.0 => Some(Self(x)),
-                    _ => None
+                    _ => None,
                 }
+            }
+        }
+
+        impl core::fmt::Display for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { 
+                self.0.fmt(f)
+            }
+        }
+
+        impl core::ops::Add for $name {
+            type Output = Self;
+
+            #[inline]
+            fn add(self, other: Self) -> Self { 
+                let x = self.0 + other.0;
+                debug_assert!(x <= Self::MAX.0, "attempt to add with overflow");
+                Self::new(x)
+            }
+        }
+
+        impl core::ops::Sub for $name {
+            type Output = Self;
+
+            #[inline]
+            fn sub(self, other: Self) -> Self { 
+                Self(self.0 - other.0)
+            }
+        }
+
+        impl core::ops::Mul for $name {
+            type Output = Self;
+
+            #[inline]
+            fn mul(self, other: Self) -> Self { 
+                let x = self.0 * other.0;
+                debug_assert!(x <= Self::MAX.0, "attempt to add with overflow");
+                Self::new(x)
+            }
+        }
+
+        impl core::ops::Div for $name {
+            type Output = Self;
+
+            #[inline]
+            fn div(self, other: Self) -> Self { 
+                Self(self.0 / other.0)
+            }
+        }
+
+        impl core::ops::Rem for $name {
+            type Output = Self;
+
+            #[inline]
+            fn rem(self, other: Self) -> Self { 
+                Self(self.0 % other.0)
             }
         }
     };
@@ -342,19 +415,10 @@ mod tests {
     }
 
     #[test]
-    fn u5_new_in_range() {
-        assert_eq!(u5::new(25).0, 25);
-        assert_eq!(u5::new(10).0, 10);
-        assert_eq!(u5::new(31).0, 31);
-        assert_eq!(u5::new(5).0, 5);
-        assert_eq!(u5::new(0).0, 0);
-    }
-
-    #[test]
-    fn u5_new_out_of_range() {
+    fn u5_new() {
         assert_eq!(u5::new(32).0, 0);
-        assert_eq!(u5::new(251).0, 27);
-        assert_eq!(u5::new(51).0, 19);
+        assert_eq!(u5::new(31).0, 31);
+        assert_eq!(u5::new(17).0, 17);
         assert_eq!(u5::new(85).0, 21);
         assert_eq!(u5::new(255).0, 31);
     }
