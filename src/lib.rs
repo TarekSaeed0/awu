@@ -1,7 +1,152 @@
 #![no_std]
 
 #[macro_export]
-macro_rules! un_def {
+macro_rules! forward_ref_unop {
+    (impl $($trait:ident)::+, $method:ident for $type:ty) => {
+        impl $($trait)::+ for &$type {
+            type Output = <$type as $($trait)::+>::Output;
+
+            #[inline]
+            fn $method(self) -> Self::Output {
+                (*self).$method()
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! forward_ref_binop {
+    (impl $($trait:ident)::+<$rhs_type:ty>, $method:ident for $type:ty) => {
+        impl $($trait)::+<$rhs_type> for &$type {
+            type Output = <$type as $($trait)::+<$rhs_type>>::Output;
+
+            #[inline]
+            fn $method(self, rhs: $rhs_type) -> Self::Output {
+                (*self).$method(rhs)
+            }
+        }
+
+        impl $($trait)::+<&$rhs_type> for $type {
+            type Output = <$type as $($trait)::+<$rhs_type>>::Output;
+
+            #[inline]
+            fn $method(self, rhs: &$rhs_type) -> Self::Output {
+                self.$method(*rhs)
+            }
+        }
+
+        impl $($trait)::+<&$rhs_type> for &$type {
+            type Output = <$type as $($trait)::+<$rhs_type>>::Output;
+
+            #[inline]
+            fn $method(self, rhs: &$rhs_type) -> Self::Output {
+                (*self).$method(*rhs)
+            }
+        }
+    };
+    (impl $($trait:ident)::+, $method:ident for $type:ty) => {
+        un::forward_ref_binop! {impl $($trait)::+<$type>, $method for $type }
+    };
+}
+
+#[macro_export]
+macro_rules! forward_ref_op_assign {
+    (impl $($trait:ident)::+<$rhs_type:ty>, $method:ident for $type:ty) => {
+        impl $($trait)::+<&$rhs_type> for $type {
+            #[inline]
+            fn $method(&mut self, rhs: &$rhs_type) {
+                self.$method(*rhs)
+            }
+        }
+    };
+    (impl $($trait:ident)::+, $method:ident for $type:ty) => {
+        un::forward_ref_op_assign! {impl $($trait)::+<$type>, $method for $type }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_op_assign {
+    (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
+        impl $($trait1)::+<$rhs_type1> for $type {
+            #[inline]
+            fn $method1(&mut self, rhs: $rhs_type1) { 
+                *self = $($trait2)::+::<$rhs_type2>::$method2(&*self, rhs);
+            }
+        }
+        un::forward_ref_op_assign! { impl $($trait1)::+<$rhs_type1>, $method1 for $type }
+    };
+    (impl $($trait1:ident)::+, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
+        un::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$rhs_type2>, $method2 for $type }
+    };
+    (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+, $method2:ident for $type:ty) => {
+        un::impl_op_assign! {impl $($trait1)::+<$rhs_type1>, $method1 use $($trait2)::+<$type>, $method2 for $type }
+    };
+    (impl $($trait1:ident)::+, $method1:ident use $($trait2:ident)::+, $method2:ident for $type:ty) => {
+        un::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$type>, $method2 for $type }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_binop {
+    (impl $($trait:ident)::+, $method:ident for $type:ty, $msg:tt) => {
+        impl $($trait)::+ for $type {
+            type Output = Self;
+
+            #[inline]
+            fn $method(self, rhs: Self) -> Self::Output {
+                let x = self.0.$method(rhs.0);
+                debug_assert!(x <= Self::MAX.0, $msg);
+                Self::wrapping_new(x)
+            }
+        }
+
+        un::forward_ref_binop! { impl $($trait)::+, $method for $type }
+    };
+    (impl $($trait:ident)::+, $method:ident for $type:ty) => {
+        impl $($trait)::+ for $type {
+            type Output = Self;
+
+            #[inline]
+            fn $method(self, rhs: Self) -> Self::Output {
+                Self(self.0.$method(rhs.0))
+            }
+        }
+
+        un::forward_ref_binop! { impl $($trait)::+, $method for $type }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_shift {
+    (impl $($trait:ident)::+<$rhs_type:ty>, $method:ident for $type:ty, $msg:tt) => {
+        impl $($trait)::+<$rhs_type> for $type {
+            type Output = Self;
+
+            #[inline]
+            fn $method(self, rhs: $rhs_type) -> Self::Output {
+                debug_assert!(u32::try_from(rhs).map_or(false, |x| x <= Self::BITS), $msg);
+                Self::wrapping_new(self.0.$method(<$rhs_type>::try_from(Self::BITS).map_or(rhs, |x| rhs % x)))
+
+            }
+        }
+
+        un::forward_ref_binop! { impl $($trait)::+<$rhs_type>, $method for $type }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_fmt {
+    (impl $($trait:ident)::* for $type:ty) => {      
+        impl $($trait)::* for $type {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { 
+                self.0.fmt(f)
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! def_uint {
     (
         $(#[$attr:meta])* 
         $vis:vis struct $name:ident($type:ty) where BITS: $bits:expr;
@@ -17,7 +162,28 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn new(value: $type) -> Self {
+                debug_assert!(value <= Self::MAX.0, concat!("attemp to create ", stringify!($name), " with overflow"));
+                Self::wrapping_new(value)
+            }
+
+            #[inline]
+            pub const fn checked_new(value: $type) -> Option<Self> {
+                if value <= Self::MAX.0 {Some(Self(value))} else {None}
+            }
+
+            #[inline]
+            pub const fn saturating_new(value: $type) -> Self {
+                if value <= Self::MAX.0 {Self(value)} else {Self::MAX}
+            }
+
+            #[inline]
+            pub const fn wrapping_new(value: $type) -> Self {
                 Self(value & Self::MAX.0)
+            }
+
+            #[inline]
+            pub const fn overflowing_new(value: $type) -> (Self, bool) {
+                (Self::wrapping_new(value), value > Self::MAX.0)
             }
 
             //from_str_radix not currently supported
@@ -57,17 +223,17 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn rotate_left(self, n: u32) -> Self {
-                Self::new(self.0 << (n % Self::BITS) | self.0 >> (Self::BITS - (n % Self::BITS)))
+                Self::wrapping_new(self.0 << (n % Self::BITS) | self.0 >> (Self::BITS - (n % Self::BITS)))
             }
 
             #[inline]
             pub const fn rotate_right(self, n: u32) -> Self {
-                Self::new(self.0 >> (n % Self::BITS) | self.0 << (Self::BITS - (n % Self::BITS)))
+                Self::wrapping_new(self.0 >> (n % Self::BITS) | self.0 << (Self::BITS - (n % Self::BITS)))
             }
 
             #[inline]
             pub const fn reverse_bits(self) -> Self {
-                Self::new(self.0.reverse_bits() >> (<$type>::BITS - Self::BITS))
+                Self::wrapping_new(self.0.reverse_bits() >> (<$type>::BITS - Self::BITS))
             }
 
             #[inline]
@@ -139,9 +305,31 @@ macro_rules! un_def {
             }
 
             #[inline]
-            pub const fn checked_pow(self, exp: u32) -> Option<Self> {
-                let (a, b) = self.overflowing_pow(exp);
-                if b {None} else {Some(a)}
+            pub const fn checked_pow(self, mut exp: u32) -> Option<Self> {
+                if exp == 0 {
+                    return Some(Self(1));
+                }
+                let mut base = self;
+                let mut acc = Self(1);
+    
+                while exp > 1 {
+                    if (exp & 1) == 1 {
+                        acc = match acc.checked_mul(base) {
+                            Some(x) => x,
+                            None => return None,
+                        };
+                    }
+                    exp /= 2;
+                    base = match base.checked_mul(base) {
+                        Some(x) => x,
+                        None => return None,
+                    };
+                }
+    
+                Some(match acc.checked_mul(base) {
+                    Some(x) => x,
+                    None => return None,
+                })
             }
 
             #[inline]
@@ -180,17 +368,17 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn wrapping_add(self, rhs: Self) -> Self {
-                Self::new(self.0.wrapping_add(rhs.0))
+                Self::wrapping_new(self.0.wrapping_add(rhs.0))
             }
 
             #[inline]
             pub const fn wrapping_sub(self, rhs: Self) -> Self {
-                Self::new(self.0.wrapping_sub(rhs.0))
+                Self::wrapping_new(self.0.wrapping_sub(rhs.0))
             }
 
             #[inline]
             pub const fn wrapping_mul(self, rhs: Self) -> Self {
-                Self::new(self.0.wrapping_mul(rhs.0))
+                Self::wrapping_new(self.0.wrapping_mul(rhs.0))
             }
 
             #[inline]
@@ -215,34 +403,34 @@ macro_rules! un_def {
 
             #[inline]
             pub const fn wrapping_neg(self) -> Self {
-                Self::new(self.0.wrapping_neg())
+                Self::wrapping_new(self.0.wrapping_neg())
             }
 
             #[inline]
             pub const fn wrapping_shl(self, rhs: u32) -> Self {
-                Self::new(self.0.wrapping_shl(rhs % Self::BITS))
+                Self::wrapping_new(self.0.wrapping_shl(rhs % Self::BITS))
             }
 
             #[inline]
             pub const fn wrapping_shr(self, rhs: u32) -> Self {
-                Self::new(self.0.wrapping_shr(rhs % Self::BITS))
+                Self::wrapping_new(self.0.wrapping_shr(rhs % Self::BITS))
             }
 
             #[inline]
             pub const fn wrapping_pow(self, exp: u32) -> Self {
-                Self::new(self.0.wrapping_pow(exp))
+                Self::wrapping_new(self.0.wrapping_pow(exp))
             }
 
             #[inline]
             pub const fn overflowing_add(self, rhs: Self) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_add(rhs.0);
-                (Self::new(a), b || a > Self::MAX.0)
+                (Self::wrapping_new(a), b || a > Self::MAX.0)
             }
 
             #[inline]
             pub const fn overflowing_sub(self, rhs: Self) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_sub(rhs.0);
-                (Self::new(a), b)
+                (Self::wrapping_new(a), b)
             }
 
             #[inline]
@@ -253,7 +441,7 @@ macro_rules! un_def {
             #[inline]
             pub const fn overflowing_mul(self, rhs: Self) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_mul(rhs.0);
-                (Self::new(a), b || a > Self::MAX.0)
+                (Self::wrapping_new(a), b || a > Self::MAX.0)
             }
 
             #[inline]
@@ -283,32 +471,32 @@ macro_rules! un_def {
             #[inline]
             pub const fn overflowing_neg(self) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_neg();
-                (Self::new(a), b)
+                (Self::wrapping_new(a), b)
             }
 
             #[inline]
             pub const fn overflowing_shl(self, rhs: u32) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_shl(rhs % Self::BITS);
-                (Self::new(a), b || (rhs >= Self::BITS))
+                (Self::wrapping_new(a), b || (rhs >= Self::BITS))
             }
 
             #[inline]
             pub const fn overflowing_shr(self, rhs: u32) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_shr(rhs % Self::BITS);
-                (Self::new(a), b || (rhs >= Self::BITS))
+                (Self::wrapping_new(a), b || (rhs >= Self::BITS))
             }
 
             #[inline]
             pub const fn overflowing_pow(self, exp: u32) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_pow(exp);
-                (Self::new(a), b || a > Self::MAX.0)
+                (Self::wrapping_new(a), b || a > Self::MAX.0)
             }
 
             #[inline]
             pub const fn pow(self, exp: u32) -> Self {
                 let x = self.0.pow(exp);
                 debug_assert!(x <= Self::MAX.0, "attempt to multiply with overflow");
-                Self::new(x)
+                Self::wrapping_new(x)
             }
 
             #[inline]
@@ -330,7 +518,7 @@ macro_rules! un_def {
             const fn next_power_of_two(self) -> Self {
                 let x = self.0.next_power_of_two();
                 debug_assert!(x <= Self::MAX.0, "attempt to add with overflow");
-                Self::new(x)
+                Self::wrapping_new(x)
             }
 
             #[inline]
@@ -342,726 +530,150 @@ macro_rules! un_def {
             }
         }
 
-        impl core::fmt::Display for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { 
-                self.0.fmt(f)
-            }
-        }
+        un::impl_fmt! { impl core::fmt::Display for $name }
 
-        impl core::ops::Add for $name {
-            type Output = Self;
+        un::impl_fmt! { impl core::fmt::Binary for $name }
 
-            #[inline]
-            fn add(self, other: Self) -> Self { 
-                let x = self.0 + other.0;
-                debug_assert!(x <= Self::MAX.0, "attempt to add with overflow");
-                Self::new(x)
-            }
-        }
+        un::impl_fmt! { impl core::fmt::Octal for $name }
 
-        impl core::ops::Sub for $name {
-            type Output = Self;
+        un::impl_fmt! { impl core::fmt::UpperHex for $name }
 
-            #[inline]
-            fn sub(self, other: Self) -> Self { 
-                Self(self.0 - other.0)
-            }
-        }
+        un::impl_fmt! { impl core::fmt::LowerHex for $name }
 
-        impl core::ops::Mul for $name {
-            type Output = Self;
+        un::impl_binop! { impl core::ops::Add, add for $name, "attempt to add with overflow" }
 
-            #[inline]
-            fn mul(self, other: Self) -> Self { 
-                let x = self.0 * other.0;
-                debug_assert!(x <= Self::MAX.0, "attempt to add with overflow");
-                Self::new(x)
-            }
-        }
+        un::impl_binop! { impl core::ops::Sub, sub for $name }
 
-        impl core::ops::Div for $name {
-            type Output = Self;
+        un::impl_binop! { impl core::ops::Mul, mul for $name, "attempt to multiply with overflow" }
 
-            #[inline]
-            fn div(self, other: Self) -> Self { 
-                Self(self.0 / other.0)
-            }
-        }
+        un::impl_binop! { impl core::ops::Div, div for $name }
 
-        impl core::ops::Rem for $name {
-            type Output = Self;
+        un::impl_binop! { impl core::ops::Rem, rem  for $name }
+  
+        un::impl_binop! { impl core::ops::BitAnd, bitand for $name }
 
-            #[inline]
-            fn rem(self, other: Self) -> Self { 
-                Self(self.0 % other.0)
-            }
-        }
+        un::impl_binop! { impl core::ops::BitOr, bitor for $name }
+
+        un::impl_binop! { impl core::ops::BitXor, bitxor for $name }
+
+        un::impl_shift! { impl core::ops::Shl<u8>, shl for $name, "attempt to shift left with overflow" }
+        
+        un::impl_shift! { impl core::ops::Shl<u16>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<u32>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<u64>, shl for $name, "attempt to shift left with overflow" }
+
+        #[cfg(has_u128)]
+        un::impl_shift! { impl core::ops::Shl<u128>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<usize>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<i8>, shl for $name, "attempt to shift left with overflow" }
+        
+        un::impl_shift! { impl core::ops::Shl<i16>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<i32>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<i64>, shl for $name, "attempt to shift left with overflow" }
+
+        #[cfg(has_i128)]
+        un::impl_shift! { impl core::ops::Shl<i128>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shl<isize>, shl for $name, "attempt to shift left with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<u8>, shr for $name, "attempt to shift right with overflow" }
+        
+        un::impl_shift! { impl core::ops::Shr<u16>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<u32>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<u64>, shr for $name, "attempt to shift right with overflow" }
+
+        #[cfg(has_u128)]
+        un::impl_shift! { impl core::ops::Shr<u128>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<usize>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<i8>, shr for $name, "attempt to shift right with overflow" }
+        
+        un::impl_shift! { impl core::ops::Shr<i16>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<i32>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<i64>, shr for $name, "attempt to shift right with overflow" }
+
+        #[cfg(has_i128)]
+        un::impl_shift! { impl core::ops::Shr<i128>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_shift! { impl core::ops::Shr<isize>, shr for $name, "attempt to shift right with overflow" }
+
+        un::impl_op_assign! { impl core::ops::AddAssign, add_assign use core::ops::Add, add for $name }
+
+        un::impl_op_assign! { impl core::ops::SubAssign, sub_assign use core::ops::Sub, sub for $name }
+
+        un::impl_op_assign! { impl core::ops::MulAssign, mul_assign use core::ops::Mul, mul for $name }
+
+        un::impl_op_assign! { impl core::ops::DivAssign, div_assign use core::ops::Div, div for $name }
+
+        un::impl_op_assign! { impl core::ops::RemAssign, rem_assign use core::ops::Rem, rem for $name }
+
+        un::impl_op_assign! { impl core::ops::BitAndAssign, bitand_assign use core::ops::BitAnd, bitand for $name }
+
+        un::impl_op_assign! { impl core::ops::BitOrAssign, bitor_assign use core::ops::BitOr, bitor for $name }
+
+        un::impl_op_assign! { impl core::ops::BitXorAssign, bitxor_assign use core::ops::BitXor, bitxor for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<u8>, shl_assign use core::ops::Shl<u8>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<u16>, shl_assign use core::ops::Shl<u16>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<u32>, shl_assign use core::ops::Shl<u32>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<u64>, shl_assign use core::ops::Shl<u64>, shl for $name }
+
+        #[cfg(has_u128)]
+        un::impl_op_assign! { impl core::ops::ShlAssign<u128>, shl_assign use core::ops::Shl<u128>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<usize>, shl_assign use core::ops::Shl<usize>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<i8>, shl_assign use core::ops::Shl<i8>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<i16>, shl_assign use core::ops::Shl<i16>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<i32>, shl_assign use core::ops::Shl<i32>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<i64>, shl_assign use core::ops::Shl<i64>, shl for $name }
+
+        #[cfg(has_i128)]
+        un::impl_op_assign! { impl core::ops::ShlAssign<i128>, shl_assign use core::ops::Shl<i128>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShlAssign<isize>, shl_assign use core::ops::Shl<isize>, shl for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<u8>, shr_assign use core::ops::Shr<u8>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<u16>, shr_assign use core::ops::Shr<u16>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<u32>, shr_assign use core::ops::Shr<u32>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<u64>, shr_assign use core::ops::Shr<u64>, shr for $name }
+
+        #[cfg(has_u128)]
+        un::impl_op_assign! { impl core::ops::ShrAssign<u128>, shr_assign use core::ops::Shr<u128>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<usize>, shr_assign use core::ops::Shr<usize>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<i8>, shr_assign use core::ops::Shr<i8>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<i16>, shr_assign use core::ops::Shr<i16>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<i32>, shr_assign use core::ops::Shr<i32>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<i64>, shr_assign use core::ops::Shr<i64>, shr for $name }
+
+        #[cfg(has_i128)]
+        un::impl_op_assign! { impl core::ops::ShrAssign<i128>, shr_assign use core::ops::Shr<i128>, shr for $name }
+
+        un::impl_op_assign! { impl core::ops::ShrAssign<isize>, shr_assign use core::ops::Shr<isize>, shr for $name }
     };
-}
-
-#[cfg(test)]
-mod tests {
-
-    un_def! {
-        #[allow(non_camel_case_types)] 
-        struct u5(u8) where BITS: 5;
-    }
-
-    #[test]
-    fn u5_consts() {
-        assert_eq!(u5::MIN.0, 0);
-        assert_eq!(u5::MAX.0, 31);
-        assert_eq!(u5::BITS, 5);
-    }
-
-    #[test]
-    fn u5_new() {
-        assert_eq!(u5::new(32).0, 0);
-        assert_eq!(u5::new(31).0, 31);
-        assert_eq!(u5::new(17).0, 17);
-        assert_eq!(u5::new(85).0, 21);
-        assert_eq!(u5::new(255).0, 31);
-    }
-
-    #[test]
-    fn u5_count_ones() {
-        assert_eq!(u5::new(0b00000).count_ones(), 0);
-        assert_eq!(u5::new(0b01111).count_ones(), 4);
-        assert_eq!(u5::new(0b01001).count_ones(), 2);
-        assert_eq!(u5::new(0b10100).count_ones(), 2);
-        assert_eq!(u5::new(0b11111).count_ones(), 5);
-    }
-    
-    #[test]
-    fn u5_count_zeros() {
-        assert_eq!(u5::new(0b00000).count_zeros(), 5);
-        assert_eq!(u5::new(0b01010).count_zeros(), 3);
-        assert_eq!(u5::new(0b00001).count_zeros(), 4);
-        assert_eq!(u5::new(0b11100).count_zeros(), 2);
-        assert_eq!(u5::new(0b11111).count_zeros(), 0);
-    }
-
-    #[test]
-    fn u5_leading_zeros() {
-        assert_eq!(u5::new(0b00000).leading_zeros(), 5);
-        assert_eq!(u5::new(0b01010).leading_zeros(), 1);
-        assert_eq!(u5::new(0b00011).leading_zeros(), 3);
-        assert_eq!(u5::new(0b10000).leading_zeros(), 0);
-        assert_eq!(u5::new(0b01101).leading_zeros(), 1);
-    }
-
-    #[test]
-    fn u5_trailing_zeros() {
-        assert_eq!(u5::new(0b00000).trailing_zeros(), 5);
-        assert_eq!(u5::new(0b01000).trailing_zeros(), 3);
-        assert_eq!(u5::new(0b10010).trailing_zeros(), 1);
-        assert_eq!(u5::new(0b10000).trailing_zeros(), 4);
-        assert_eq!(u5::new(0b01101).trailing_zeros(), 0);
-    }
-
-    #[test]
-    fn u5_leading_ones() {
-        assert_eq!(u5::new(0b00000).leading_ones(), 0);
-        assert_eq!(u5::new(0b11110).leading_ones(), 4);
-        assert_eq!(u5::new(0b11011).leading_ones(), 2);
-        assert_eq!(u5::new(0b10100).leading_ones(), 1);
-        assert_eq!(u5::new(0b11111).leading_ones(), 5);
-    }
-
-    #[test]
-    fn u5_trailing_ones() {
-        assert_eq!(u5::new(0b00000).trailing_ones(), 0);
-        assert_eq!(u5::new(0b01111).trailing_ones(), 4);
-        assert_eq!(u5::new(0b10010).trailing_ones(), 0);
-        assert_eq!(u5::new(0b11111).trailing_ones(), 5);
-        assert_eq!(u5::new(0b01101).trailing_ones(), 1);
-    }
-
-    #[test]
-    fn u5_rotate_left() {
-        assert_eq!(u5::new(0b00000).rotate_left(2), u5::new(0b00000));
-        assert_eq!(u5::new(0b01111).rotate_left(3), u5::new(0b11011));
-        assert_eq!(u5::new(0b10010).rotate_left(0), u5::new(0b10010));
-        assert_eq!(u5::new(0b11111).rotate_left(10), u5::new(0b11111));
-        assert_eq!(u5::new(0b01101).rotate_left(5), u5::new(0b01101));
-    }
-
-    #[test]
-    fn u5_rotate_right() {
-        assert_eq!(u5::new(0b00000).rotate_right(2), u5::new(0b00000));
-        assert_eq!(u5::new(0b01101).rotate_right(3), u5::new(0b10101));
-        assert_eq!(u5::new(0b10010).rotate_right(0), u5::new(0b10010));
-        assert_eq!(u5::new(0b11111).rotate_right(10), u5::new(0b11111));
-        assert_eq!(u5::new(0b01101).rotate_right(5), u5::new(0b01101));
-    }
-
-    #[test]
-    fn u5_reverse_bits() {
-        assert_eq!(u5::new(0b00000).reverse_bits(), u5::new(0b00000));
-        assert_eq!(u5::new(0b01111).reverse_bits(), u5::new(0b11110));
-        assert_eq!(u5::new(0b11010).reverse_bits(), u5::new(0b01011));
-        assert_eq!(u5::new(0b00100).reverse_bits(), u5::new(0b00100));
-        assert_eq!(u5::new(0b01101).reverse_bits(), u5::new(0b10110));
-    }
-
-    #[test]
-    fn u5_checked_add() {
-        assert_eq!(u5::new(10).checked_add(u5::new(13)), Some(u5::new(23)));
-        assert_eq!(u5::new(31).checked_add(u5::new(1)), None);
-        assert_eq!(u5::new(17).checked_add(u5::new(24)), None);
-        assert_eq!(u5::new(5).checked_add(u5::new(3)), Some(u5::new(8)));
-        assert_eq!(u5::new(24).checked_add(u5::new(0)), Some(u5::new(24)));
-    }
-
-    #[test]
-    fn u5_checked_sub() {
-        assert_eq!(u5::new(17).checked_sub(u5::new(23)), None);
-        assert_eq!(u5::new(31).checked_sub(u5::new(1)), Some(u5::new(30)));
-        assert_eq!(u5::new(0).checked_sub(u5::new(24)), None);
-        assert_eq!(u5::new(5).checked_sub(u5::new(3)), Some(u5::new(2)));
-        assert_eq!(u5::new(24).checked_sub(u5::new(0)), Some(u5::new(24)));
-    }
-
-    #[test]
-    fn u5_checked_mul() {
-        assert_eq!(u5::new(10).checked_mul(u5::new(13)), None);
-        assert_eq!(u5::new(31).checked_mul(u5::new(1)), Some(u5::new(31)));
-        assert_eq!(u5::new(17).checked_mul(u5::new(24)), None);
-        assert_eq!(u5::new(6).checked_mul(u5::new(4)), Some(u5::new(24)));
-        assert_eq!(u5::new(12).checked_mul(u5::new(0)), Some(u5::new(0)));
-    }
-
-    #[test]
-    fn u5_checked_div() {
-        assert_eq!(u5::new(23).checked_div(u5::new(10)), Some(u5::new(2)));
-        assert_eq!(u5::new(9).checked_div(u5::new(1)), Some(u5::new(9)));
-        assert_eq!(u5::new(0).checked_div(u5::new(24)), Some(u5::new(0)));
-        assert_eq!(u5::new(5).checked_div(u5::new(3)), Some(u5::new(1)));
-        assert_eq!(u5::new(24).checked_div(u5::new(0)), None);
-    }
-
-    #[test]
-    fn u5_checked_div_euclid() {
-        assert_eq!(u5::new(23).checked_div_euclid(u5::new(10)), Some(u5::new(2)));
-        assert_eq!(u5::new(9).checked_div_euclid(u5::new(1)), Some(u5::new(9)));
-        assert_eq!(u5::new(0).checked_div_euclid(u5::new(24)), Some(u5::new(0)));
-        assert_eq!(u5::new(5).checked_div_euclid(u5::new(3)), Some(u5::new(1)));
-        assert_eq!(u5::new(24).checked_div_euclid(u5::new(0)), None);
-    }
-
-    #[test]
-    fn u5_checked_rem() {
-        assert_eq!(u5::new(23).checked_rem(u5::new(10)), Some(u5::new(3)));
-        assert_eq!(u5::new(9).checked_rem(u5::new(2)), Some(u5::new(1)));
-        assert_eq!(u5::new(10).checked_rem(u5::new(24)), Some(u5::new(10)));
-        assert_eq!(u5::new(12).checked_rem(u5::new(3)), Some(u5::new(0)));
-        assert_eq!(u5::new(24).checked_rem(u5::new(0)), None);
-    }
-
-    #[test]
-    fn u5_checked_rem_euclid() {
-        assert_eq!(u5::new(23).checked_rem_euclid(u5::new(10)), Some(u5::new(3)));
-        assert_eq!(u5::new(9).checked_rem_euclid(u5::new(2)), Some(u5::new(1)));
-        assert_eq!(u5::new(10).checked_rem_euclid(u5::new(24)), Some(u5::new(10)));
-        assert_eq!(u5::new(12).checked_rem_euclid(u5::new(3)), Some(u5::new(0)));
-        assert_eq!(u5::new(24).checked_rem_euclid(u5::new(0)), None);
-    }
-
-    #[test]
-    fn u5_checked_neg() {
-        assert_eq!(u5::new(23).checked_neg(), None);
-        assert_eq!(u5::new(10).checked_neg(), None);
-        assert_eq!(u5::new(16).checked_neg(), None);
-        assert_eq!(u5::new(0).checked_neg(), Some(u5::new(0)));
-        assert_eq!(u5::new(1).checked_neg(), None);
-    }
-    
-    #[test]
-    fn u5_checked_shl() {
-        assert_eq!(u5::new(0b01101).checked_shl(0), Some(u5::new(0b01101)));
-        assert_eq!(u5::new(0b10101).checked_shl(1), Some(u5::new(0b01010)));
-        assert_eq!(u5::new(0b00001).checked_shl(3), Some(u5::new(0b01000)));
-        assert_eq!(u5::new(0b11001).checked_shl(5), None);
-        assert_eq!(u5::new(0b01101).checked_shl(12), None);
-    }
-
-    #[test]
-    fn u5_checked_shr() {
-        assert_eq!(u5::new(0b01001).checked_shr(1), Some(u5::new(0b00100)));
-        assert_eq!(u5::new(0b00111).checked_shr(0), Some(u5::new(0b00111)));
-        assert_eq!(u5::new(0b00101).checked_shr(4), Some(u5::new(0b00000)));
-        assert_eq!(u5::new(0b11000).checked_shr(5), None);
-        assert_eq!(u5::new(0b01100).checked_shr(63), None);
-    }
-    
-    #[test]
-    fn u5_checked_pow() {
-        assert_eq!(u5::new(7).checked_pow(3), None);
-        assert_eq!(u5::new(23).checked_pow(0), Some(u5::new(1)));
-        assert_eq!(u5::new(2).checked_pow(4), Some(u5::new(16)));
-        assert_eq!(u5::new(11).checked_pow(5), None);
-        assert_eq!(u5::new(1).checked_pow(63), Some(u5::new(1)));
-    }
-
-    #[test]
-    fn u5_saturating_add() {
-        assert_eq!(u5::new(10).saturating_add(u5::new(13)), u5::new(23));
-        assert_eq!(u5::new(31).saturating_add(u5::new(1)), u5::new(31));
-        assert_eq!(u5::new(17).saturating_add(u5::new(24)), u5::new(31));
-        assert_eq!(u5::new(5).saturating_add(u5::new(3)), u5::new(8));
-        assert_eq!(u5::new(24).saturating_add(u5::new(0)), u5::new(24));
-    }
-
-    #[test]
-    fn u5_saturating_sub() {
-        assert_eq!(u5::new(17).saturating_sub(u5::new(23)), u5::new(0));
-        assert_eq!(u5::new(31).saturating_sub(u5::new(1)), u5::new(30));
-        assert_eq!(u5::new(0).saturating_sub(u5::new(24)), u5::new(0));
-        assert_eq!(u5::new(5).saturating_sub(u5::new(3)), u5::new(2));
-        assert_eq!(u5::new(24).saturating_sub(u5::new(0)), u5::new(24));
-    }
-
-    #[test]
-    fn u5_saturating_mul() {
-        assert_eq!(u5::new(10).saturating_mul(u5::new(13)), u5::new(31));
-        assert_eq!(u5::new(31).saturating_mul(u5::new(1)), u5::new(31));
-        assert_eq!(u5::new(17).saturating_mul(u5::new(24)), u5::new(31));
-        assert_eq!(u5::new(6).saturating_mul(u5::new(4)), u5::new(24));
-        assert_eq!(u5::new(12).saturating_mul(u5::new(0)), u5::new(0));
-    }
-
-    #[test]
-    fn u5_saturating_div() {
-        assert_eq!(u5::new(23).saturating_div(u5::new(10)), u5::new(2));
-        assert_eq!(u5::new(9).saturating_div(u5::new(1)), u5::new(9));
-        assert_eq!(u5::new(0).saturating_div(u5::new(24)), u5::new(0));
-        assert_eq!(u5::new(5).saturating_div(u5::new(3)), u5::new(1));
-        assert_eq!(u5::new(5).saturating_div(u5::new(16)), u5::new(0));
-    }
-    
-    #[test]
-    #[should_panic(expected = "attempt to divide by zero")]
-    fn u5_saturating_div_panic_0() {
-        u5::new(17).saturating_div(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to divide by zero")]
-    fn u5_saturating_div_panic_1() {
-        u5::new(0).saturating_div(u5::new(0));
-    }
-
-    #[test]
-    fn u5_saturating_pow() {
-        assert_eq!(u5::new(7).saturating_pow(3), u5::new(31));
-        assert_eq!(u5::new(23).saturating_pow(0), u5::new(1));
-        assert_eq!(u5::new(2).saturating_pow(4), u5::new(16));
-        assert_eq!(u5::new(11).saturating_pow(5), u5::new(31));
-        assert_eq!(u5::new(1).saturating_pow(63), u5::new(1));
-    }
-
-    #[test]
-    fn u5_wrapping_add() {
-        assert_eq!(u5::new(10).wrapping_add(u5::new(13)), u5::new(23));
-        assert_eq!(u5::new(31).wrapping_add(u5::new(1)), u5::new(0));
-        assert_eq!(u5::new(17).wrapping_add(u5::new(24)), u5::new(9));
-        assert_eq!(u5::new(5).wrapping_add(u5::new(3)), u5::new(8));
-        assert_eq!(u5::new(24).wrapping_add(u5::new(0)), u5::new(24));
-    }
-
-    #[test]
-    fn u5_wrapping_sub() {
-        assert_eq!(u5::new(17).wrapping_sub(u5::new(23)), u5::new(26));
-        assert_eq!(u5::new(31).wrapping_sub(u5::new(1)), u5::new(30));
-        assert_eq!(u5::new(0).wrapping_sub(u5::new(24)), u5::new(8));
-        assert_eq!(u5::new(5).wrapping_sub(u5::new(3)), u5::new(2));
-        assert_eq!(u5::new(24).wrapping_sub(u5::new(0)), u5::new(24));
-    }
-
-    #[test]
-    fn u5_wrapping_mul() {
-        assert_eq!(u5::new(10).wrapping_mul(u5::new(13)), u5::new(2));
-        assert_eq!(u5::new(31).wrapping_mul(u5::new(1)), u5::new(31));
-        assert_eq!(u5::new(17).wrapping_mul(u5::new(24)), u5::new(24));
-        assert_eq!(u5::new(6).wrapping_mul(u5::new(4)), u5::new(24));
-        assert_eq!(u5::new(12).wrapping_mul(u5::new(0)), u5::new(0));
-    }
-
-    #[test]
-    fn u5_wrapping_div() {
-        assert_eq!(u5::new(23).wrapping_div(u5::new(10)), u5::new(2));
-        assert_eq!(u5::new(9).wrapping_div(u5::new(1)), u5::new(9));
-        assert_eq!(u5::new(0).wrapping_div(u5::new(24)), u5::new(0));
-        assert_eq!(u5::new(5).wrapping_div(u5::new(3)), u5::new(1));
-        assert_eq!(u5::new(24).wrapping_div(u5::new(5)), u5::new(4));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to divide by zero")]
-    fn u5_wrapping_div_panic_0() {
-        u5::new(25).wrapping_div(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to divide by zero")]
-    fn u5_wrapping_div_panic_1() {
-        u5::new(0).wrapping_div(u5::new(0));
-    }
-
-    #[test]
-    fn u5_wrapping_div_euclid() {
-        assert_eq!(u5::new(23).wrapping_div_euclid(u5::new(10)), u5::new(2));
-        assert_eq!(u5::new(9).wrapping_div_euclid(u5::new(1)), u5::new(9));
-        assert_eq!(u5::new(0).wrapping_div_euclid(u5::new(24)), u5::new(0));
-        assert_eq!(u5::new(5).wrapping_div_euclid(u5::new(3)), u5::new(1));
-        assert_eq!(u5::new(24).wrapping_div_euclid(u5::new(5)), u5::new(4));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to divide by zero")]
-    fn u5_wrapping_div_euclid_panic_0() {
-        u5::new(5).wrapping_div_euclid(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to divide by zero")]
-    fn u5_wrapping_div_euclid_panic_1() {
-        u5::new(0).wrapping_div_euclid(u5::new(0));
-    }
-
-    #[test]
-    fn u5_wrapping_rem() {
-        assert_eq!(u5::new(23).wrapping_rem(u5::new(10)), u5::new(3));
-        assert_eq!(u5::new(9).wrapping_rem(u5::new(2)), u5::new(1));
-        assert_eq!(u5::new(10).wrapping_rem(u5::new(24)), u5::new(10));
-        assert_eq!(u5::new(12).wrapping_rem(u5::new(3)), u5::new(0));
-        assert_eq!(u5::new(24).wrapping_rem(u5::new(12)), u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_wrapping_rem_panic_0() {
-        u5::new(31).wrapping_rem(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_wrapping_rem_panic_1() {
-        u5::new(0).wrapping_rem(u5::new(0));
-    }
-
-    #[test]
-    fn u5_wrapping_rem_euclid() {
-        assert_eq!(u5::new(23).wrapping_rem_euclid(u5::new(10)), u5::new(3));
-        assert_eq!(u5::new(9).wrapping_rem_euclid(u5::new(2)), u5::new(1));
-        assert_eq!(u5::new(10).wrapping_rem_euclid(u5::new(24)), u5::new(10));
-        assert_eq!(u5::new(12).wrapping_rem_euclid(u5::new(3)), u5::new(0));
-        assert_eq!(u5::new(24).wrapping_rem_euclid(u5::new(12)), u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_wrapping_rem_euclid_panic_0() {
-        u5::new(20).wrapping_rem_euclid(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_wrapping_rem_euclid_panic_1() {
-        u5::new(0).wrapping_rem_euclid(u5::new(0));
-    }
-
-    #[test]
-    fn u5_wrapping_neg() {
-        assert_eq!(u5::new(23).wrapping_neg(), u5::new(9));
-        assert_eq!(u5::new(10).wrapping_neg(), u5::new(22));
-        assert_eq!(u5::new(16).wrapping_neg(), u5::new(16));
-        assert_eq!(u5::new(0).wrapping_neg(), u5::new(0));
-        assert_eq!(u5::new(1).wrapping_neg(), u5::new(31));
-    }
-    
-    #[test]
-    fn u5_wrapping_shl() {
-        assert_eq!(u5::new(0b01101).wrapping_shl(0), u5::new(0b01101));
-        assert_eq!(u5::new(0b10101).wrapping_shl(1), u5::new(0b01010));
-        assert_eq!(u5::new(0b00001).wrapping_shl(3), u5::new(0b01000));
-        assert_eq!(u5::new(0b11001).wrapping_shl(5), u5::new(0b11001));
-        assert_eq!(u5::new(0b01101).wrapping_shl(12), u5::new(0b10100));
-    }
-
-    #[test]
-    fn u5_wrapping_shr() {
-        assert_eq!(u5::new(0b01001).wrapping_shr(1), u5::new(0b00100));
-        assert_eq!(u5::new(0b00111).wrapping_shr(0), u5::new(0b00111));
-        assert_eq!(u5::new(0b00101).wrapping_shr(4), u5::new(0b00000));
-        assert_eq!(u5::new(0b11000).wrapping_shr(5), u5::new(0b11000));
-        assert_eq!(u5::new(0b01100).wrapping_shr(63), u5::new(0b00001));
-    }
-    
-    #[test]
-    fn u5_wrapping_pow() {
-        assert_eq!(u5::new(7).wrapping_pow(3), u5::new(23));
-        assert_eq!(u5::new(23).wrapping_pow(0), u5::new(1));
-        assert_eq!(u5::new(2).wrapping_pow(4), u5::new(16));
-        assert_eq!(u5::new(11).wrapping_pow(5), u5::new(27));
-        assert_eq!(u5::new(1).wrapping_pow(63), u5::new(1));
-    }
-
-    #[test]
-    fn u5_overflowing_add() {
-        assert_eq!(u5::new(10).overflowing_add(u5::new(13)), (u5::new(23), false));
-        assert_eq!(u5::new(31).overflowing_add(u5::new(1)), (u5::new(0), true));
-        assert_eq!(u5::new(17).overflowing_add(u5::new(24)), (u5::new(9), true));
-        assert_eq!(u5::new(5).overflowing_add(u5::new(3)), (u5::new(8), false));
-        assert_eq!(u5::new(24).overflowing_add(u5::new(0)), (u5::new(24), false));
-    }
-
-    #[test]
-    fn u5_overflowing_sub() {
-        assert_eq!(u5::new(17).overflowing_sub(u5::new(23)), (u5::new(26), true));
-        assert_eq!(u5::new(31).overflowing_sub(u5::new(1)), (u5::new(30), false));
-        assert_eq!(u5::new(0).overflowing_sub(u5::new(24)), (u5::new(8), true));
-        assert_eq!(u5::new(5).overflowing_sub(u5::new(3)), (u5::new(2), false));
-        assert_eq!(u5::new(24).overflowing_sub(u5::new(0)), (u5::new(24), false));
-    }
-
-    #[test]
-    fn u5_abs_diff() {
-        assert_eq!(u5::new(17).abs_diff(u5::new(23)), u5::new(6));
-        assert_eq!(u5::new(31).abs_diff(u5::new(1)), u5::new(30));
-        assert_eq!(u5::new(0).abs_diff(u5::new(24)), u5::new(24));
-        assert_eq!(u5::new(5).abs_diff(u5::new(3)), u5::new(2));
-        assert_eq!(u5::new(24).abs_diff(u5::new(0)), u5::new(24));
-    }
-
-    #[test]
-    fn u5_overflowing_mul() {
-        assert_eq!(u5::new(10).overflowing_mul(u5::new(13)), (u5::new(2), true));
-        assert_eq!(u5::new(31).overflowing_mul(u5::new(1)), (u5::new(31), false));
-        assert_eq!(u5::new(17).overflowing_mul(u5::new(24)), (u5::new(24), true));
-        assert_eq!(u5::new(6).overflowing_mul(u5::new(4)), (u5::new(24), false));
-        assert_eq!(u5::new(12).overflowing_mul(u5::new(0)), (u5::new(0), false));
-    }
-
-    #[test]
-    fn u5_overflowing_div() {
-        assert_eq!(u5::new(23).overflowing_div(u5::new(10)), (u5::new(2), false));
-        assert_eq!(u5::new(9).overflowing_div(u5::new(1)), (u5::new(9), false));
-        assert_eq!(u5::new(0).overflowing_div(u5::new(24)), (u5::new(0), false));
-        assert_eq!(u5::new(5).overflowing_div(u5::new(3)), (u5::new(1), false));
-        assert_eq!(u5::new(24).overflowing_div(u5::new(5)), (u5::new(4), false));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to divide by zero")]
-    fn u5_overflowing_div_panic_0() {
-        u5::new(25).overflowing_div(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to divide by zero")]
-    fn u5_overflowing_div_panic_1() {
-        u5::new(0).overflowing_div(u5::new(0));
-    }
-
-    #[test]
-    fn u5_overflowing_div_euclid() {
-        assert_eq!(u5::new(23).overflowing_div_euclid(u5::new(10)), (u5::new(2), false));
-        assert_eq!(u5::new(9).overflowing_div_euclid(u5::new(1)), (u5::new(9), false));
-        assert_eq!(u5::new(0).overflowing_div_euclid(u5::new(24)), (u5::new(0), false));
-        assert_eq!(u5::new(5).overflowing_div_euclid(u5::new(3)), (u5::new(1), false));
-        assert_eq!(u5::new(24).overflowing_div_euclid(u5::new(5)), (u5::new(4), false));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to divide by zero")]
-    fn u5_overflowing_div_euclid_panic_0() {
-        u5::new(5).overflowing_div_euclid(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to divide by zero")]
-    fn u5_overflowing_div_euclid_panic_1() {
-        u5::new(0).overflowing_div_euclid(u5::new(0));
-    }
-
-    #[test]
-    fn u5_overflowing_rem() {
-        assert_eq!(u5::new(23).overflowing_rem(u5::new(10)), (u5::new(3), false));
-        assert_eq!(u5::new(9).overflowing_rem(u5::new(2)), (u5::new(1), false));
-        assert_eq!(u5::new(10).overflowing_rem(u5::new(24)), (u5::new(10), false));
-        assert_eq!(u5::new(12).overflowing_rem(u5::new(3)), (u5::new(0), false));
-        assert_eq!(u5::new(24).overflowing_rem(u5::new(12)), (u5::new(0), false));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_overflowing_rem_panic_0() {
-        u5::new(31).overflowing_rem(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_overflowing_rem_panic_1() {
-        u5::new(0).overflowing_rem(u5::new(0));
-    }
-
-    #[test]
-    fn u5_overflowing_rem_euclid() {
-        assert_eq!(u5::new(23).overflowing_rem_euclid(u5::new(10)), (u5::new(3), false));
-        assert_eq!(u5::new(9).overflowing_rem_euclid(u5::new(2)), (u5::new(1), false));
-        assert_eq!(u5::new(10).overflowing_rem_euclid(u5::new(24)), (u5::new(10), false));
-        assert_eq!(u5::new(12).overflowing_rem_euclid(u5::new(3)), (u5::new(0), false));
-        assert_eq!(u5::new(24).overflowing_rem_euclid(u5::new(12)), (u5::new(0), false));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_overflowing_rem_euclid_panic_0() {
-        u5::new(20).overflowing_rem_euclid(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_overflowing_rem_euclid_panic_1() {
-        u5::new(0).overflowing_rem_euclid(u5::new(0));
-    }
-
-    #[test]
-    fn u5_overflowing_neg() {
-        assert_eq!(u5::new(23).overflowing_neg(), (u5::new(9), true));
-        assert_eq!(u5::new(10).overflowing_neg(), (u5::new(22), true));
-        assert_eq!(u5::new(16).overflowing_neg(), (u5::new(16), true));
-        assert_eq!(u5::new(0).overflowing_neg(), (u5::new(0), false));
-        assert_eq!(u5::new(1).overflowing_neg(), (u5::new(31), true));
-    }
-    
-    #[test]
-    fn u5_overflowing_shl() {
-        assert_eq!(u5::new(0b01101).overflowing_shl(0), (u5::new(0b01101), false));
-        assert_eq!(u5::new(0b10101).overflowing_shl(1), (u5::new(0b01010), false));
-        assert_eq!(u5::new(0b00001).overflowing_shl(3), (u5::new(0b01000), false));
-        assert_eq!(u5::new(0b11001).overflowing_shl(5), (u5::new(0b11001), true));
-        assert_eq!(u5::new(0b01101).overflowing_shl(12), (u5::new(0b10100), true));
-    }
-
-    #[test]
-    fn u5_overflowing_shr() {
-        assert_eq!(u5::new(0b01001).overflowing_shr(1), (u5::new(0b00100), false));
-        assert_eq!(u5::new(0b00111).overflowing_shr(0), (u5::new(0b00111), false));
-        assert_eq!(u5::new(0b00101).overflowing_shr(4), (u5::new(0b00000), false));
-        assert_eq!(u5::new(0b11000).overflowing_shr(5), (u5::new(0b11000), true));
-        assert_eq!(u5::new(0b01100).overflowing_shr(63), (u5::new(0b00001), true));
-    }
-    
-    #[test]
-    fn u5_overflowing_pow() {
-        assert_eq!(u5::new(7).overflowing_pow(3), (u5::new(23), true));
-        assert_eq!(u5::new(23).overflowing_pow(0), (u5::new(1), false));
-        assert_eq!(u5::new(2).overflowing_pow(4), (u5::new(16), false));
-        assert_eq!(u5::new(11).overflowing_pow(5), (u5::new(27), true));
-        assert_eq!(u5::new(1).overflowing_pow(63), (u5::new(1), false));
-    }
-
-    #[test]
-    fn u5_pow() {
-        assert_eq!(u5::new(3).pow(3), u5::new(27));
-        assert_eq!(u5::new(23).pow(0), u5::new(1));
-        assert_eq!(u5::new(2).pow(4), u5::new(16));
-        assert_eq!(u5::new(5).pow(2), u5::new(25));
-        assert_eq!(u5::new(1).pow(63), u5::new(1));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to multiply with overflow")]
-    fn u5_pow_panic_0() {
-        u5::new(20).pow(6);
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to multiply with overflow")]
-    fn u5_pow_panic_1() {
-        u5::new(12).pow(13);
-    }
-
-    #[test]
-    fn u5_div_euclid() {
-        assert_eq!(u5::new(23).div_euclid(u5::new(10)), u5::new(2));
-        assert_eq!(u5::new(9).div_euclid(u5::new(1)), u5::new(9));
-        assert_eq!(u5::new(0).div_euclid(u5::new(24)), u5::new(0));
-        assert_eq!(u5::new(5).div_euclid(u5::new(3)), u5::new(1));
-        assert_eq!(u5::new(24).div_euclid(u5::new(5)), u5::new(4));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to divide by zero")]
-    fn u5_div_euclid_panic_0() {
-        u5::new(5).div_euclid(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to divide by zero")]
-    fn u5_div_euclid_panic_1() {
-        u5::new(0).div_euclid(u5::new(0));
-    }
-
-    #[test]
-    fn u5_rem_euclid() {
-        assert_eq!(u5::new(23).rem_euclid(u5::new(10)), u5::new(3));
-        assert_eq!(u5::new(9).rem_euclid(u5::new(2)), u5::new(1));
-        assert_eq!(u5::new(10).rem_euclid(u5::new(24)), u5::new(10));
-        assert_eq!(u5::new(12).rem_euclid(u5::new(3)), u5::new(0));
-        assert_eq!(u5::new(24).rem_euclid(u5::new(12)), u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected = "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_rem_euclid_panic_0() {
-        u5::new(20).rem_euclid(u5::new(0));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to calculate the remainder with a divisor of zero")]
-    fn u5_rem_euclid_panic_1() {
-        u5::new(0).rem_euclid(u5::new(0));
-    }
-
-    #[test]
-    fn u5_is_power_of_two() {
-        assert!(u5::new(4).is_power_of_two());
-        assert!(!u5::new(11).is_power_of_two());
-        assert!(u5::new(16).is_power_of_two());
-        assert!(u5::new(1).is_power_of_two());
-        assert!(!u5::new(31).is_power_of_two());
-    }
-
-    #[test]
-    fn u5_next_power_of_two() {
-        assert_eq!(u5::new(4).next_power_of_two(), u5::new(4));
-        assert_eq!(u5::new(0).next_power_of_two(), u5::new(1));
-        assert_eq!(u5::new(11).next_power_of_two(), u5::new(16));
-        assert_eq!(u5::new(6).next_power_of_two(), u5::new(8));
-        assert_eq!(u5::new(1).next_power_of_two(), u5::new(1));
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to add with overflow")]
-    fn u5_next_power_of_two_panic_0() {
-        u5::new(24).next_power_of_two();
-    }
-
-    #[test]
-    #[should_panic(expected =  "attempt to add with overflow")]
-    fn u5_next_power_of_two_panic_1() {
-        u5::new(31).next_power_of_two();
-    }
-
-    #[test]
-    fn u5_checked_next_power_of_two() {
-        assert_eq!(u5::new(4).checked_next_power_of_two(), Some(u5::new(4)));
-        assert_eq!(u5::new(0).checked_next_power_of_two(), Some(u5::new(1)));
-        assert_eq!(u5::new(24).checked_next_power_of_two(), None);
-        assert_eq!(u5::new(6).checked_next_power_of_two(), Some(u5::new(8)));
-        assert_eq!(u5::new(31).checked_next_power_of_two(), None);
-    }
 }
