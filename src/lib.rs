@@ -65,28 +65,6 @@ macro_rules! forward_ref_op_assign {
 }
 
 #[macro_export]
-macro_rules! impl_op_assign {
-    (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
-        impl $($trait1)::+<$rhs_type1> for $type {
-            #[inline]
-            fn $method1(&mut self, rhs: $rhs_type1) { 
-                *self = $($trait2)::+::<$rhs_type2>::$method2(&*self, rhs);
-            }
-        }
-        un::forward_ref_op_assign! { impl $($trait1)::+<$rhs_type1>, $method1 for $type }
-    };
-    (impl $($trait1:ident)::+, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
-        un::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$rhs_type2>, $method2 for $type }
-    };
-    (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+, $method2:ident for $type:ty) => {
-        un::impl_op_assign! {impl $($trait1)::+<$rhs_type1>, $method1 use $($trait2)::+<$type>, $method2 for $type }
-    };
-    (impl $($trait1:ident)::+, $method1:ident use $($trait2:ident)::+, $method2:ident for $type:ty) => {
-        un::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$type>, $method2 for $type }
-    };
-}
-
-#[macro_export]
 macro_rules! impl_binop {
     (impl $($trait:ident)::+, $method:ident for $type:ty, $msg:tt) => {
         impl $($trait)::+ for $type {
@@ -117,6 +95,29 @@ macro_rules! impl_binop {
 }
 
 #[macro_export]
+macro_rules! impl_op_assign {
+    (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
+        impl $($trait1)::+<$rhs_type1> for $type {
+            #[inline]
+            fn $method1(&mut self, rhs: $rhs_type1) { 
+                *self = $($trait2)::+::<$rhs_type2>::$method2(&*self, rhs);
+            }
+        }
+        un::forward_ref_op_assign! { impl $($trait1)::+<$rhs_type1>, $method1 for $type }
+    };
+    (impl $($trait1:ident)::+, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
+        un::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$rhs_type2>, $method2 for $type }
+    };
+    (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+, $method2:ident for $type:ty) => {
+        un::impl_op_assign! {impl $($trait1)::+<$rhs_type1>, $method1 use $($trait2)::+<$type>, $method2 for $type }
+    };
+    (impl $($trait1:ident)::+, $method1:ident use $($trait2:ident)::+, $method2:ident for $type:ty) => {
+        un::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$type>, $method2 for $type }
+    };
+}
+
+
+#[macro_export]
 macro_rules! impl_shift {
     (impl $($trait:ident)::+<$rhs_type:ty>, $method:ident for $type:ty, $msg:tt) => {
         impl $($trait)::+<$rhs_type> for $type {
@@ -124,7 +125,7 @@ macro_rules! impl_shift {
 
             #[inline]
             fn $method(self, rhs: $rhs_type) -> Self::Output {
-                debug_assert!(u32::try_from(rhs).map_or(false, |x| x <= Self::BITS), $msg);
+                debug_assert!(u32::try_from(rhs).map_or(false, |x| x < Self::BITS), $msg);
                 Self::wrapping_new(self.0.$method(<$rhs_type>::try_from(Self::BITS).map_or(rhs, |x| rhs % x)))
 
             }
@@ -132,6 +133,9 @@ macro_rules! impl_shift {
 
         un::forward_ref_binop! { impl $($trait)::+<$rhs_type>, $method for $type }
     };
+    (impl $($trait:ident)::+, $method:ident for $type:ty, $msg:tt) => {
+        un::impl_shift! { impl $($trait)::+<$type>, $method for $type, $msg }
+    }
 }
 
 #[macro_export]
@@ -149,8 +153,14 @@ macro_rules! impl_fmt {
 macro_rules! def_uint {
     (
         $(#[$attr:meta])* 
-        $vis:vis struct $name:ident($type:ty) where BITS: $bits:expr;
+        $vis:vis struct $name:ident($type:ty) 
+        where BITS: $bits:expr$(,)?;
     ) => {
+        #[macro_export]
+        macro_rules! $name {
+            ($value:expr) => { $name::new($value) };
+        }
+
         $(#[$attr])*
         #[repr(transparent)]
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -531,149 +541,132 @@ macro_rules! def_uint {
         }
 
         un::impl_fmt! { impl core::fmt::Display for $name }
-
         un::impl_fmt! { impl core::fmt::Binary for $name }
-
         un::impl_fmt! { impl core::fmt::Octal for $name }
-
-        un::impl_fmt! { impl core::fmt::UpperHex for $name }
-
         un::impl_fmt! { impl core::fmt::LowerHex for $name }
+        un::impl_fmt! { impl core::fmt::UpperHex for $name }
+        un::impl_fmt! { impl core::fmt::LowerExp for $name }
+        un::impl_fmt! { impl core::fmt::UpperExp for $name }
 
         un::impl_binop! { impl core::ops::Add, add for $name, "attempt to add with overflow" }
-
         un::impl_binop! { impl core::ops::Sub, sub for $name }
-
         un::impl_binop! { impl core::ops::Mul, mul for $name, "attempt to multiply with overflow" }
-
         un::impl_binop! { impl core::ops::Div, div for $name }
-
         un::impl_binop! { impl core::ops::Rem, rem  for $name }
-  
+
+        impl core::ops::Not for $name {
+            type Output = Self;
+
+            #[inline]
+            fn not(self) -> Self { 
+                Self::wrapping_new(!self.0)
+            }
+        }
+
+        un::forward_ref_unop! { impl core::ops::Not, not for $name }
+
         un::impl_binop! { impl core::ops::BitAnd, bitand for $name }
-
         un::impl_binop! { impl core::ops::BitOr, bitor for $name }
-
         un::impl_binop! { impl core::ops::BitXor, bitxor for $name }
 
+       impl core::ops::Shl for $name {
+           type Output = Self;
+
+            #[inline]
+            fn shl(self, rhs: Self) -> Self::Output {
+                self << rhs.0
+            }
+        }
+
+        un::forward_ref_binop! { impl core::ops::Shl, shl for $name }
+
         un::impl_shift! { impl core::ops::Shl<u8>, shl for $name, "attempt to shift left with overflow" }
-        
         un::impl_shift! { impl core::ops::Shl<u16>, shl for $name, "attempt to shift left with overflow" }
-
         un::impl_shift! { impl core::ops::Shl<u32>, shl for $name, "attempt to shift left with overflow" }
-
         un::impl_shift! { impl core::ops::Shl<u64>, shl for $name, "attempt to shift left with overflow" }
-
         #[cfg(has_u128)]
         un::impl_shift! { impl core::ops::Shl<u128>, shl for $name, "attempt to shift left with overflow" }
-
         un::impl_shift! { impl core::ops::Shl<usize>, shl for $name, "attempt to shift left with overflow" }
 
         un::impl_shift! { impl core::ops::Shl<i8>, shl for $name, "attempt to shift left with overflow" }
-        
         un::impl_shift! { impl core::ops::Shl<i16>, shl for $name, "attempt to shift left with overflow" }
-
         un::impl_shift! { impl core::ops::Shl<i32>, shl for $name, "attempt to shift left with overflow" }
-
         un::impl_shift! { impl core::ops::Shl<i64>, shl for $name, "attempt to shift left with overflow" }
-
         #[cfg(has_i128)]
         un::impl_shift! { impl core::ops::Shl<i128>, shl for $name, "attempt to shift left with overflow" }
-
         un::impl_shift! { impl core::ops::Shl<isize>, shl for $name, "attempt to shift left with overflow" }
 
+        impl core::ops::Shr for $name {
+            type Output = Self;
+ 
+            #[inline]
+            fn shr(self, rhs: Self) -> Self::Output {
+                self >> rhs.0
+            }
+        }
+ 
+         un::forward_ref_binop! { impl core::ops::Shr, shr for $name }
+
         un::impl_shift! { impl core::ops::Shr<u8>, shr for $name, "attempt to shift right with overflow" }
-        
         un::impl_shift! { impl core::ops::Shr<u16>, shr for $name, "attempt to shift right with overflow" }
-
         un::impl_shift! { impl core::ops::Shr<u32>, shr for $name, "attempt to shift right with overflow" }
-
         un::impl_shift! { impl core::ops::Shr<u64>, shr for $name, "attempt to shift right with overflow" }
-
         #[cfg(has_u128)]
         un::impl_shift! { impl core::ops::Shr<u128>, shr for $name, "attempt to shift right with overflow" }
-
         un::impl_shift! { impl core::ops::Shr<usize>, shr for $name, "attempt to shift right with overflow" }
 
         un::impl_shift! { impl core::ops::Shr<i8>, shr for $name, "attempt to shift right with overflow" }
-        
         un::impl_shift! { impl core::ops::Shr<i16>, shr for $name, "attempt to shift right with overflow" }
-
         un::impl_shift! { impl core::ops::Shr<i32>, shr for $name, "attempt to shift right with overflow" }
-
         un::impl_shift! { impl core::ops::Shr<i64>, shr for $name, "attempt to shift right with overflow" }
-
         #[cfg(has_i128)]
         un::impl_shift! { impl core::ops::Shr<i128>, shr for $name, "attempt to shift right with overflow" }
-
         un::impl_shift! { impl core::ops::Shr<isize>, shr for $name, "attempt to shift right with overflow" }
 
         un::impl_op_assign! { impl core::ops::AddAssign, add_assign use core::ops::Add, add for $name }
-
         un::impl_op_assign! { impl core::ops::SubAssign, sub_assign use core::ops::Sub, sub for $name }
-
         un::impl_op_assign! { impl core::ops::MulAssign, mul_assign use core::ops::Mul, mul for $name }
-
         un::impl_op_assign! { impl core::ops::DivAssign, div_assign use core::ops::Div, div for $name }
-
         un::impl_op_assign! { impl core::ops::RemAssign, rem_assign use core::ops::Rem, rem for $name }
 
         un::impl_op_assign! { impl core::ops::BitAndAssign, bitand_assign use core::ops::BitAnd, bitand for $name }
-
         un::impl_op_assign! { impl core::ops::BitOrAssign, bitor_assign use core::ops::BitOr, bitor for $name }
-
         un::impl_op_assign! { impl core::ops::BitXorAssign, bitxor_assign use core::ops::BitXor, bitxor for $name }
 
+        un::impl_op_assign! { impl core::ops::ShlAssign, shl_assign use core::ops::Shl, shl for $name }
+
         un::impl_op_assign! { impl core::ops::ShlAssign<u8>, shl_assign use core::ops::Shl<u8>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<u16>, shl_assign use core::ops::Shl<u16>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<u32>, shl_assign use core::ops::Shl<u32>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<u64>, shl_assign use core::ops::Shl<u64>, shl for $name }
-
         #[cfg(has_u128)]
         un::impl_op_assign! { impl core::ops::ShlAssign<u128>, shl_assign use core::ops::Shl<u128>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<usize>, shl_assign use core::ops::Shl<usize>, shl for $name }
 
         un::impl_op_assign! { impl core::ops::ShlAssign<i8>, shl_assign use core::ops::Shl<i8>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<i16>, shl_assign use core::ops::Shl<i16>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<i32>, shl_assign use core::ops::Shl<i32>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<i64>, shl_assign use core::ops::Shl<i64>, shl for $name }
-
         #[cfg(has_i128)]
         un::impl_op_assign! { impl core::ops::ShlAssign<i128>, shl_assign use core::ops::Shl<i128>, shl for $name }
-
         un::impl_op_assign! { impl core::ops::ShlAssign<isize>, shl_assign use core::ops::Shl<isize>, shl for $name }
 
+        un::impl_op_assign! { impl core::ops::ShrAssign, shr_assign use core::ops::Shr, shr for $name }
+
         un::impl_op_assign! { impl core::ops::ShrAssign<u8>, shr_assign use core::ops::Shr<u8>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<u16>, shr_assign use core::ops::Shr<u16>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<u32>, shr_assign use core::ops::Shr<u32>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<u64>, shr_assign use core::ops::Shr<u64>, shr for $name }
-
         #[cfg(has_u128)]
         un::impl_op_assign! { impl core::ops::ShrAssign<u128>, shr_assign use core::ops::Shr<u128>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<usize>, shr_assign use core::ops::Shr<usize>, shr for $name }
 
         un::impl_op_assign! { impl core::ops::ShrAssign<i8>, shr_assign use core::ops::Shr<i8>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<i16>, shr_assign use core::ops::Shr<i16>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<i32>, shr_assign use core::ops::Shr<i32>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<i64>, shr_assign use core::ops::Shr<i64>, shr for $name }
-
         #[cfg(has_i128)]
         un::impl_op_assign! { impl core::ops::ShrAssign<i128>, shr_assign use core::ops::Shr<i128>, shr for $name }
-
         un::impl_op_assign! { impl core::ops::ShrAssign<isize>, shr_assign use core::ops::Shr<isize>, shr for $name }
     };
 }
