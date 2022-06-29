@@ -163,14 +163,14 @@ macro_rules! impl_from {
 
 #[macro_export]
 macro_rules! impl_try_from {
-    (impl $($trait:ident)::+<$value_type:ty>, $method:ident for $type:ty) => {
+    (impl $($trait:ident)::+<$value_type:ty>, $method:ident for $type:ty where INNER: $inner_type:ty) => {
         impl $($trait)::+<$value_type> for $type {
-            type Error = ();
+            type Error = Option<<$inner_type as $($trait)::+<$value_type>>::Error>;
 
             #[inline]
             fn $method(value: $value_type) -> Result<Self, Self::Error> {
-                let x = $($trait)::+::$method(value).map_err(|_| ())?;
-                if x <= Self::MAX.0 {Ok(Self(x))} else {Err(())}
+                let x = $($trait)::+::$method(value)?;
+                if x <= Self::MAX.0 {Ok(Self(x))} else {Err(None)}
             }
         }
     };
@@ -190,13 +190,13 @@ macro_rules! impl_into {
 
 #[macro_export]
 macro_rules! impl_try_into {
-    (impl $($trait:ident)::+<$value_type:ty>, $method:ident for $type:ty) => {
+    (impl $($trait:ident)::+<$value_type:ty where INNER: $inner_type:ty>, $method:ident for $type:ty) => {
         impl $($trait)::+<$value_type> for $type {
-            type Error = ();
+            type Error = <$type as $($trait)::+<$inner_type>>::Error;
 
             #[inline]
             fn $method(value: $value_type) -> Result<Self, Self::Error> {
-                value.0.try_into().map_err(|_| ())
+                value.0.try_into()
             }
         }
     };
@@ -206,7 +206,7 @@ macro_rules! impl_try_into {
 macro_rules! def_uint {
     (
         $(#[$attr:meta])* 
-        $vis:vis struct $name:ident($type:ty) 
+        $vis:vis struct $type:ident($inner_type:ty) 
         where 
             BITS: $bits:expr$(,
             FROM: [$($($from_types:ty),+$(,)?)?])?$(,
@@ -223,46 +223,54 @@ macro_rules! def_uint {
         $(
             $(#[$macro_attr])*
             macro_rules! $macro_name {
-                ($value:expr) => { $name::new($value) };
+                ($value:expr) => { $type::new($value) };
             }
         )?
 
         $(#[$attr])*
         #[repr(transparent)]
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        $vis struct $name($type);
-        impl $name {
+        $vis struct $type($inner_type);
+        impl $type {
             pub const MIN: Self = Self(0);
             pub const MAX: Self = Self((1 << Self::BITS) - 1);
             pub const BITS: u32 = $bits;
 
             #[inline]
-            pub const fn new(value: $type) -> Self {
-                debug_assert!(value <= Self::MAX.0, concat!("attemp to create ", stringify!($name), " with overflow"));
+            pub const fn new(value: $inner_type) -> Self {
+                debug_assert!(value <= Self::MAX.0, concat!("attempt to create ", stringify!($type), " with overflow"));
                 Self::wrapping_new(value)
             }
 
             #[inline]
-            pub const fn checked_new(value: $type) -> Option<Self> {
+            pub const fn checked_new(value: $inner_type) -> Option<Self> {
                 if value <= Self::MAX.0 {Some(Self(value))} else {None}
             }
 
             #[inline]
-            pub const fn saturating_new(value: $type) -> Self {
+            pub const fn saturating_new(value: $inner_type) -> Self {
                 if value <= Self::MAX.0 {Self(value)} else {Self::MAX}
             }
 
             #[inline]
-            pub const fn wrapping_new(value: $type) -> Self {
+            pub const fn wrapping_new(value: $inner_type) -> Self {
                 Self(value & Self::MAX.0)
             }
 
             #[inline]
-            pub const fn overflowing_new(value: $type) -> (Self, bool) {
+            pub const fn overflowing_new(value: $inner_type) -> (Self, bool) {
                 (Self::wrapping_new(value), value > Self::MAX.0)
             }
 
-            //from_str_radix not currently supported
+            #[inline]
+            pub const fn into_inner(self) -> $inner_type {
+                self.0
+            }
+
+            #[inline]
+            pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, Option<core::num::ParseIntError>> {
+                Self::checked_new(<$inner_type>::from_str_radix(src, radix)?).ok_or(None)
+            }
 
             #[inline]
             pub const fn count_ones(self) -> u32 {
@@ -271,12 +279,12 @@ macro_rules! def_uint {
 
             #[inline]
             pub const fn count_zeros(self) -> u32 {
-                self.0.count_zeros() - (<$type>::BITS - Self::BITS)
+                self.0.count_zeros() - (<$inner_type>::BITS - Self::BITS)
             }
 
             #[inline]
             pub const fn leading_zeros(self) -> u32 {
-                self.0.leading_zeros() - (<$type>::BITS - Self::BITS)
+                self.0.leading_zeros() - (<$inner_type>::BITS - Self::BITS)
             }
 
             #[inline]
@@ -289,7 +297,7 @@ macro_rules! def_uint {
 
             #[inline]
             pub const fn leading_ones(self) -> u32 {
-                (self.0 << (<$type>::BITS - Self::BITS)).leading_ones()
+                (self.0 << (<$inner_type>::BITS - Self::BITS)).leading_ones()
             }
 
             #[inline]
@@ -309,7 +317,7 @@ macro_rules! def_uint {
 
             #[inline]
             pub const fn reverse_bits(self) -> Self {
-                Self::wrapping_new(self.0.reverse_bits() >> (<$type>::BITS - Self::BITS))
+                Self::wrapping_new(self.0.reverse_bits() >> (<$inner_type>::BITS - Self::BITS))
             }
 
             #[inline]
@@ -600,21 +608,21 @@ macro_rules! def_uint {
             }
         }
 
-        awu::impl_fmt! { impl core::fmt::Display for $name }
-        awu::impl_fmt! { impl core::fmt::Binary for $name }
-        awu::impl_fmt! { impl core::fmt::Octal for $name }
-        awu::impl_fmt! { impl core::fmt::LowerHex for $name }
-        awu::impl_fmt! { impl core::fmt::UpperHex for $name }
-        awu::impl_fmt! { impl core::fmt::LowerExp for $name }
-        awu::impl_fmt! { impl core::fmt::UpperExp for $name }
+        awu::impl_fmt! { impl core::fmt::Display for $type }
+        awu::impl_fmt! { impl core::fmt::Binary for $type }
+        awu::impl_fmt! { impl core::fmt::Octal for $type }
+        awu::impl_fmt! { impl core::fmt::LowerHex for $type }
+        awu::impl_fmt! { impl core::fmt::UpperHex for $type }
+        awu::impl_fmt! { impl core::fmt::LowerExp for $type }
+        awu::impl_fmt! { impl core::fmt::UpperExp for $type }
 
-        awu::impl_binop! { impl core::ops::Add, add for $name, "attempt to add with overflow" }
-        awu::impl_binop! { impl core::ops::Sub, sub for $name }
-        awu::impl_binop! { impl core::ops::Mul, mul for $name, "attempt to multiply with overflow" }
-        awu::impl_binop! { impl core::ops::Div, div for $name }
-        awu::impl_binop! { impl core::ops::Rem, rem  for $name }
+        awu::impl_binop! { impl core::ops::Add, add for $type, "attempt to add with overflow" }
+        awu::impl_binop! { impl core::ops::Sub, sub for $type }
+        awu::impl_binop! { impl core::ops::Mul, mul for $type, "attempt to multiply with overflow" }
+        awu::impl_binop! { impl core::ops::Div, div for $type }
+        awu::impl_binop! { impl core::ops::Rem, rem  for $type }
 
-        impl core::ops::Not for $name {
+        impl core::ops::Not for $type {
             type Output = Self;
 
             #[inline]
@@ -623,13 +631,13 @@ macro_rules! def_uint {
             }
         }
 
-        awu::forward_ref_unop! { impl core::ops::Not, not for $name }
+        awu::forward_ref_unop! { impl core::ops::Not, not for $type }
 
-        awu::impl_binop! { impl core::ops::BitAnd, bitand for $name }
-        awu::impl_binop! { impl core::ops::BitOr, bitor for $name }
-        awu::impl_binop! { impl core::ops::BitXor, bitxor for $name }
+        awu::impl_binop! { impl core::ops::BitAnd, bitand for $type }
+        awu::impl_binop! { impl core::ops::BitOr, bitor for $type }
+        awu::impl_binop! { impl core::ops::BitXor, bitxor for $type }
 
-       impl core::ops::Shl for $name {
+       impl core::ops::Shl for $type {
            type Output = Self;
 
             #[inline]
@@ -638,25 +646,25 @@ macro_rules! def_uint {
             }
         }
 
-        awu::forward_ref_binop! { impl core::ops::Shl, shl for $name }
+        awu::forward_ref_binop! { impl core::ops::Shl, shl for $type }
 
-        awu::impl_shift! { impl core::ops::Shl<u8>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<u16>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<u32>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<u64>, shl for $name, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<u8>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<u16>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<u32>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<u64>, shl for $type, "attempt to shift left with overflow" }
         #[cfg(has_u128)]
-        awu::impl_shift! { impl core::ops::Shl<u128>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<usize>, shl for $name, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<u128>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<usize>, shl for $type, "attempt to shift left with overflow" }
 
-        awu::impl_shift! { impl core::ops::Shl<i8>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<i16>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<i32>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<i64>, shl for $name, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<i8>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<i16>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<i32>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<i64>, shl for $type, "attempt to shift left with overflow" }
         #[cfg(has_i128)]
-        awu::impl_shift! { impl core::ops::Shl<i128>, shl for $name, "attempt to shift left with overflow" }
-        awu::impl_shift! { impl core::ops::Shl<isize>, shl for $name, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<i128>, shl for $type, "attempt to shift left with overflow" }
+        awu::impl_shift! { impl core::ops::Shl<isize>, shl for $type, "attempt to shift left with overflow" }
 
-        impl core::ops::Shr for $name {
+        impl core::ops::Shr for $type {
             type Output = Self;
  
             #[inline]
@@ -665,94 +673,101 @@ macro_rules! def_uint {
             }
         }
  
-         awu::forward_ref_binop! { impl core::ops::Shr, shr for $name }
+         awu::forward_ref_binop! { impl core::ops::Shr, shr for $type }
 
-        awu::impl_shift! { impl core::ops::Shr<u8>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<u16>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<u32>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<u64>, shr for $name, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<u8>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<u16>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<u32>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<u64>, shr for $type, "attempt to shift right with overflow" }
         #[cfg(has_u128)]
-        awu::impl_shift! { impl core::ops::Shr<u128>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<usize>, shr for $name, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<u128>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<usize>, shr for $type, "attempt to shift right with overflow" }
 
-        awu::impl_shift! { impl core::ops::Shr<i8>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<i16>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<i32>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<i64>, shr for $name, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<i8>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<i16>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<i32>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<i64>, shr for $type, "attempt to shift right with overflow" }
         #[cfg(has_i128)]
-        awu::impl_shift! { impl core::ops::Shr<i128>, shr for $name, "attempt to shift right with overflow" }
-        awu::impl_shift! { impl core::ops::Shr<isize>, shr for $name, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<i128>, shr for $type, "attempt to shift right with overflow" }
+        awu::impl_shift! { impl core::ops::Shr<isize>, shr for $type, "attempt to shift right with overflow" }
 
-        awu::impl_op_assign! { impl core::ops::AddAssign, add_assign use core::ops::Add, add for $name }
-        awu::impl_op_assign! { impl core::ops::SubAssign, sub_assign use core::ops::Sub, sub for $name }
-        awu::impl_op_assign! { impl core::ops::MulAssign, mul_assign use core::ops::Mul, mul for $name }
-        awu::impl_op_assign! { impl core::ops::DivAssign, div_assign use core::ops::Div, div for $name }
-        awu::impl_op_assign! { impl core::ops::RemAssign, rem_assign use core::ops::Rem, rem for $name }
+        awu::impl_op_assign! { impl core::ops::AddAssign, add_assign use core::ops::Add, add for $type }
+        awu::impl_op_assign! { impl core::ops::SubAssign, sub_assign use core::ops::Sub, sub for $type }
+        awu::impl_op_assign! { impl core::ops::MulAssign, mul_assign use core::ops::Mul, mul for $type }
+        awu::impl_op_assign! { impl core::ops::DivAssign, div_assign use core::ops::Div, div for $type }
+        awu::impl_op_assign! { impl core::ops::RemAssign, rem_assign use core::ops::Rem, rem for $type }
 
-        awu::impl_op_assign! { impl core::ops::BitAndAssign, bitand_assign use core::ops::BitAnd, bitand for $name }
-        awu::impl_op_assign! { impl core::ops::BitOrAssign, bitor_assign use core::ops::BitOr, bitor for $name }
-        awu::impl_op_assign! { impl core::ops::BitXorAssign, bitxor_assign use core::ops::BitXor, bitxor for $name }
+        awu::impl_op_assign! { impl core::ops::BitAndAssign, bitand_assign use core::ops::BitAnd, bitand for $type }
+        awu::impl_op_assign! { impl core::ops::BitOrAssign, bitor_assign use core::ops::BitOr, bitor for $type }
+        awu::impl_op_assign! { impl core::ops::BitXorAssign, bitxor_assign use core::ops::BitXor, bitxor for $type }
 
-        awu::impl_op_assign! { impl core::ops::ShlAssign, shl_assign use core::ops::Shl, shl for $name }
+        awu::impl_op_assign! { impl core::ops::ShlAssign, shl_assign use core::ops::Shl, shl for $type }
 
-        awu::impl_op_assign! { impl core::ops::ShlAssign<u8>, shl_assign use core::ops::Shl<u8>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<u16>, shl_assign use core::ops::Shl<u16>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<u32>, shl_assign use core::ops::Shl<u32>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<u64>, shl_assign use core::ops::Shl<u64>, shl for $name }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<u8>, shl_assign use core::ops::Shl<u8>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<u16>, shl_assign use core::ops::Shl<u16>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<u32>, shl_assign use core::ops::Shl<u32>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<u64>, shl_assign use core::ops::Shl<u64>, shl for $type }
         #[cfg(has_u128)]
-        awu::impl_op_assign! { impl core::ops::ShlAssign<u128>, shl_assign use core::ops::Shl<u128>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<usize>, shl_assign use core::ops::Shl<usize>, shl for $name }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<u128>, shl_assign use core::ops::Shl<u128>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<usize>, shl_assign use core::ops::Shl<usize>, shl for $type }
 
-        awu::impl_op_assign! { impl core::ops::ShlAssign<i8>, shl_assign use core::ops::Shl<i8>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<i16>, shl_assign use core::ops::Shl<i16>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<i32>, shl_assign use core::ops::Shl<i32>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<i64>, shl_assign use core::ops::Shl<i64>, shl for $name }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<i8>, shl_assign use core::ops::Shl<i8>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<i16>, shl_assign use core::ops::Shl<i16>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<i32>, shl_assign use core::ops::Shl<i32>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<i64>, shl_assign use core::ops::Shl<i64>, shl for $type }
         #[cfg(has_i128)]
-        awu::impl_op_assign! { impl core::ops::ShlAssign<i128>, shl_assign use core::ops::Shl<i128>, shl for $name }
-        awu::impl_op_assign! { impl core::ops::ShlAssign<isize>, shl_assign use core::ops::Shl<isize>, shl for $name }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<i128>, shl_assign use core::ops::Shl<i128>, shl for $type }
+        awu::impl_op_assign! { impl core::ops::ShlAssign<isize>, shl_assign use core::ops::Shl<isize>, shl for $type }
 
-        awu::impl_op_assign! { impl core::ops::ShrAssign, shr_assign use core::ops::Shr, shr for $name }
+        awu::impl_op_assign! { impl core::ops::ShrAssign, shr_assign use core::ops::Shr, shr for $type }
 
-        awu::impl_op_assign! { impl core::ops::ShrAssign<u8>, shr_assign use core::ops::Shr<u8>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<u16>, shr_assign use core::ops::Shr<u16>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<u32>, shr_assign use core::ops::Shr<u32>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<u64>, shr_assign use core::ops::Shr<u64>, shr for $name }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<u8>, shr_assign use core::ops::Shr<u8>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<u16>, shr_assign use core::ops::Shr<u16>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<u32>, shr_assign use core::ops::Shr<u32>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<u64>, shr_assign use core::ops::Shr<u64>, shr for $type }
         #[cfg(has_u128)]
-        awu::impl_op_assign! { impl core::ops::ShrAssign<u128>, shr_assign use core::ops::Shr<u128>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<usize>, shr_assign use core::ops::Shr<usize>, shr for $name }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<u128>, shr_assign use core::ops::Shr<u128>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<usize>, shr_assign use core::ops::Shr<usize>, shr for $type }
 
-        awu::impl_op_assign! { impl core::ops::ShrAssign<i8>, shr_assign use core::ops::Shr<i8>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<i16>, shr_assign use core::ops::Shr<i16>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<i32>, shr_assign use core::ops::Shr<i32>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<i64>, shr_assign use core::ops::Shr<i64>, shr for $name }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<i8>, shr_assign use core::ops::Shr<i8>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<i16>, shr_assign use core::ops::Shr<i16>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<i32>, shr_assign use core::ops::Shr<i32>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<i64>, shr_assign use core::ops::Shr<i64>, shr for $type }
         #[cfg(has_i128)]
-        awu::impl_op_assign! { impl core::ops::ShrAssign<i128>, shr_assign use core::ops::Shr<i128>, shr for $name }
-        awu::impl_op_assign! { impl core::ops::ShrAssign<isize>, shr_assign use core::ops::Shr<isize>, shr for $name }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<i128>, shr_assign use core::ops::Shr<i128>, shr for $type }
+        awu::impl_op_assign! { impl core::ops::ShrAssign<isize>, shr_assign use core::ops::Shr<isize>, shr for $type }
 
-        $($($(awu::impl_from! { impl core::convert::From<$from_types>, from for $name })+)?)?
-        $($($(awu::impl_try_from! { impl core::convert::TryFrom<$try_from_types>, try_from for $name })+)?)?
-        $($($(awu::impl_into! { impl core::convert::From<$name>, from for $into_types })+)?)?
-        $($($(awu::impl_try_into! { impl core::convert::TryFrom<$name>, try_from for $try_into_types })+)?)?
+        $($($(awu::impl_from! { impl core::convert::From<$from_types>, from for $type })+)?)?
+        $($($(awu::impl_try_from! { impl core::convert::TryFrom<$try_from_types>, try_from for $type where INNER: $inner_type })+)?)?
+        $($($(awu::impl_into! { impl core::convert::From<$type>, from for $into_types })+)?)?
+        $($($(awu::impl_try_into! { impl core::convert::TryFrom<$type where INNER: $inner_type>, try_from for $try_into_types })+)?)?
 
-        impl core::iter::Sum for $name {
+        impl core::iter::Sum for $type {
             fn sum<I: Iterator<Item=Self>>(iter: I) -> Self {
                 iter.fold(Self(0), |a, b| a + b)
             }
         }
-        impl<'a> core::iter::Sum<&'a Self> for $name {
+        impl<'a> core::iter::Sum<&'a Self> for $type {
             fn sum<I: Iterator<Item=&'a Self>>(iter: I) -> Self {
                 iter.fold(Self(0), |a, b| a + b)
             }
         }
         
-        impl core::iter::Product for $name {
+        impl core::iter::Product for $type {
             fn product<I: Iterator<Item=Self>>(iter: I) -> Self {
                 iter.fold(Self(1), |a, b| a * b)
             }
         }
-        impl<'a> core::iter::Product<&'a Self> for $name {
+        impl<'a> core::iter::Product<&'a Self> for $type {
             fn product<I: Iterator<Item=&'a Self>>(iter: I) -> Self {
                 iter.fold(Self(1), |a, b| a * b)
+            }
+        }
+
+        impl core::str::FromStr for $type {
+            type Err = Option<core::num::ParseIntError>;
+            fn from_str(src: &str) -> Result<Self, Self::Err> {
+                Self::from_str_radix(src, 10)
             }
         }
 
