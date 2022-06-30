@@ -154,7 +154,7 @@ macro_rules! impl_from {
         impl $($trait)::+<$value_type> for $type {
             #[inline]
             fn $method(value: $value_type) -> Self {
-                Self::checked_new(value.into()).expect(concat!(stringify!($type), " from ", stringify!($value_type), " isn't infallible, consider removing it"))
+                Self::checked_new(value.into()).expect(concat!(" From<", stringify!($value_type), "> for ", stringify!($type), " isn't infallible, consider implementing it as TryFrom instead"))
             }
         }
     };
@@ -168,7 +168,7 @@ macro_rules! impl_try_from {
 
             #[inline]
             fn $method(value: $value_type) -> Result<Self, Self::Error> {
-                Self::checked_new($($trait)::+::$method(value)?).ok_or(None)
+                Self::checked_new(value.try_into()?).ok_or(None)
             }
         }
     };
