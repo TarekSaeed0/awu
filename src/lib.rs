@@ -154,7 +154,7 @@ macro_rules! impl_from {
         impl $($trait)::+<$value_type> for $type {
             #[inline]
             fn $method(value: $value_type) -> Self {
-                Self(value.into())
+                Self::checked_new(value.into()).expect(concat!(stringify!($type), " from ", stringify!($value_type), " isn't infallible, consider removing it"))
             }
         }
     };
@@ -168,8 +168,7 @@ macro_rules! impl_try_from {
 
             #[inline]
             fn $method(value: $value_type) -> Result<Self, Self::Error> {
-                let x = $($trait)::+::$method(value)?;
-                if x <= Self::MAX.0 {Ok(Self(x))} else {Err(None)}
+                Self::checked_new($($trait)::+::$method(value)?).ok_or(None)
             }
         }
     };
