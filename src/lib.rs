@@ -66,9 +66,9 @@ macro_rules! forward_ref_op_assign {
 
 #[macro_export]
 macro_rules! impl_fmt {
-    (impl $($trait:ident)::+ for $type:ty) => {      
+    (impl $($trait:ident)::+ for $type:ty) => {
         impl $($trait)::+ for $type {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { 
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 $($trait)::+::fmt(&self.0, f)
             }
         }
@@ -110,7 +110,7 @@ macro_rules! impl_op_assign {
     (impl $($trait1:ident)::+<$rhs_type1:ty>, $method1:ident use $($trait2:ident)::+<$rhs_type2:ty>, $method2:ident for $type:ty) => {
         impl $($trait1)::+<$rhs_type1> for $type {
             #[inline]
-            fn $method1(&mut self, rhs: $rhs_type1) { 
+            fn $method1(&mut self, rhs: $rhs_type1) {
                 *self = $($trait2)::+::<$rhs_type2>::$method2(&*self, rhs);
             }
         }
@@ -126,7 +126,6 @@ macro_rules! impl_op_assign {
         awu::impl_op_assign! {impl $($trait1)::+<$type>, $method1 use $($trait2)::+<$type>, $method2 for $type }
     };
 }
-
 
 #[macro_export]
 macro_rules! impl_shift {
@@ -205,9 +204,9 @@ macro_rules! impl_try_into {
 #[macro_export]
 macro_rules! def_uint {
     (
-        $(#[$attr:meta])* 
-        $vis:vis struct $type:ident($inner_type:ty) 
-        where 
+        $(#[$attr:meta])*
+        $vis:vis struct $type:ident($inner_type:ty)
+        where
             BITS: $bits:expr$(,
             FROM: [$($($from_types:ty),+$(,)?)?])?$(,
             TRY_FROM: [$($($try_from_types:ty),+$(,)?)?])?$(,
@@ -353,7 +352,7 @@ macro_rules! def_uint {
                     None => None,
                 }
             }
-            
+
             #[inline]
             pub const fn checked_rem(self, rhs: Self) -> Option<Self> {
                 match self.0.checked_rem(rhs.0) {
@@ -395,7 +394,7 @@ macro_rules! def_uint {
                 }
                 let mut base = self;
                 let mut acc = Self(1);
-    
+
                 while exp > 1 {
                     if (exp & 1) == 1 {
                         acc = match acc.checked_mul(base) {
@@ -409,7 +408,7 @@ macro_rules! def_uint {
                         None => return None,
                     };
                 }
-    
+
                 Some(match acc.checked_mul(base) {
                     Some(x) => x,
                     None => return None,
@@ -545,7 +544,7 @@ macro_rules! def_uint {
                 let (a, b) = self.0.overflowing_rem_euclid(rhs.0);
                 (Self(a), b)
             }
-            
+
             #[inline]
             pub const fn overflowing_neg(self) -> (Self, bool) {
                 let (a, b) = self.0.overflowing_neg();
@@ -626,7 +625,7 @@ macro_rules! def_uint {
             type Output = Self;
 
             #[inline]
-            fn not(self) -> Self { 
+            fn not(self) -> Self {
                 Self::wrapping_new(!self.0)
             }
         }
@@ -666,13 +665,13 @@ macro_rules! def_uint {
 
         impl core::ops::Shr for $type {
             type Output = Self;
- 
+
             #[inline]
             fn shr(self, rhs: Self) -> Self::Output {
                 self >> rhs.0
             }
         }
- 
+
          awu::forward_ref_binop! { impl core::ops::Shr, shr for $type }
 
         awu::impl_shift! { impl core::ops::Shr<u8>, shr for $type, "attempt to shift right with overflow" }
@@ -752,7 +751,7 @@ macro_rules! def_uint {
                 iter.fold(Self(0), |a, b| a + b)
             }
         }
-        
+
         impl core::iter::Product for $type {
             fn product<I: Iterator<Item=Self>>(iter: I) -> Self {
                 iter.fold(Self(1), |a, b| a * b)
