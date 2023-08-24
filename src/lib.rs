@@ -201,7 +201,7 @@ macro_rules! impl_try_into {
 }
 
 #[macro_export]
-macro_rules! def_uint {
+macro_rules! def_awu {
     (
         $(#[$attr:meta])*
         $vis:vis struct $type:ident($inner_type:ty)
